@@ -15,6 +15,7 @@ dependencies = [
     "fastapi>=0.142,<1",
     "uvicorn[standard]>=0.54,<1",
     "httpx>=0.28,<1",
+    "pyyaml>=6.0,<7",
 ]
 
 [project.optional-dependencies]
@@ -46,5 +47,6 @@ select = [
 testpaths = ["tests"]
 addopts = "-ra --strict-markers -m 'not live'"
 markers = [
+    "db: usa o banco real em data/ (pulado automaticamente se ausente ou não preparado)",
     "live: chama a API real do OpenRouter e consome cota diária (rodar com `pytest -m live`)",
 ]

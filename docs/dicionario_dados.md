@@ -1,0 +1,179 @@
+# Dicionário de dados — camada Gold CineData
+
+> Arquivo gerado por `scripts/gen_data_dictionary.py` a partir de
+> `src/cinedata_agent/semantic_layer.py`. Não edite à mão.
+
+## Tabelas
+
+### `dim_movies`
+
+Um registro por filme (95.645 filmes, lançados entre 2016 e 2029).
+
+| Coluna | Descrição |
+|---|---|
+| `sk_movie_id` | Chave substituta (hash). Usar só em JOINs; nunca exibir. |
+| `id_filme` | Identificador do filme na fonte (TMDB). |
+| `titulo` | Título original. NÃO é único: exibir junto com ano_lancamento. |
+| `data_lancamento` | Data de lançamento (texto 'AAAA-MM-DD'). |
+| `ano_lancamento` | Ano de lançamento (inteiro). |
+| `duracao_minutos` | Duração em minutos. |
+| `idioma_original` | Sempre NULL nesta base. Não usar. |
+| `status_filme` | 'Lançado', 'Pós-Produção', 'Em Produção' ou 'Planejado' (com acentos). |
+| `sinopse` | Sinopse em inglês. |
+| `url_poster` | URL do pôster. |
+| `url_backdrop` | URL da imagem de fundo. |
+
+### `fact_movies_performance`
+
+Métricas financeiras e de popularidade; exatamente 1 linha por filme.
+
+| Coluna | Descrição |
+|---|---|
+| `sk_movie_id` | FK para dim_movies. |
+| `orcamento_usd` | Orçamento em US$. NULL quando não informado. |
+| `receita_usd` | Receita/bilheteria em US$. NULL quando não informada. |
+| `lucro_usd` | Lucro em US$ (ver regras de lucro: nunca é NULL). |
+| `orcamento_brl` | Orçamento em R$ (câmbio histórico por filme). |
+| `receita_brl` | Receita/bilheteria em R$. Informada em só ~3,4 mil filmes. |
+| `lucro_brl` | Lucro em R$ (ver regras de lucro: nunca é NULL). |
+| `popularidade` | Índice de popularidade do TMDB (quanto maior, mais popular). |
+| `nota_tmdb` | Nota média no TMDB (0 a 10). Vale 0 quando qtd_tmdb = 0. |
+| `qtd_tmdb` | Quantidade de votos no TMDB. |
+| `nota_imdb` | Nota média no IMDb (0 a 10). NULL quando não há votos. |
+| `qtd_imdb` | Quantidade de votos no IMDb. |
+
+### `dim_genres`
+
+Os 19 gêneros, com nomes em INGLÊS (ex.: 'Action', 'Science Fiction').
+
+| Coluna | Descrição |
+|---|---|
+| `sk_genre_id` | Chave substituta (hash). |
+| `nome_genero` | Nome do gênero em inglês. |
+
+### `dim_people`
+
+Pessoas do elenco e da equipe. A mesma pessoa tem uma linha por papel.
+
+| Coluna | Descrição |
+|---|---|
+| `sk_person_id` | Chave substituta (hash). |
+| `nome_pessoa` | Nome. Pode se repetir entre papéis (ex.: ator que também dirige). |
+| `tipo_pessoa` | Papel: 'Ator', 'Diretor' ou 'Roteirista'. |
+
+### `dim_companies`
+
+Produtoras.
+
+| Coluna | Descrição |
+|---|---|
+| `sk_company_id` | Chave substituta (hash). |
+| `nome_produtora` | Nome da produtora (único). |
+
+### `dim_reviews`
+
+Resumo das avaliações de usuários: 1 linha por filme avaliado (40.267 filmes).
+
+| Coluna | Descrição |
+|---|---|
+| `sk_review_id` | Chave substituta (hash). |
+| `sk_movie_id` | FK para dim_movies (única). |
+| `qtd_avaliacoes_usuarios` | Quantidade de avaliações (1 a 13; 93% têm só 1). |
+| `nota_media_usuarios` | Nota média dos usuários (0 a 10). |
+
+### `movie_reviews`
+
+Avaliações individuais de usuários, com texto em português.
+
+| Coluna | Descrição |
+|---|---|
+| `id` | Identificador numérico da avaliação. |
+| `sk_movie_review_id` | Chave substituta (hash). |
+| `sk_movie_id` | FK para dim_movies. |
+| `name` | Nome do usuário que avaliou. |
+| `rating` | Nota dada pelo usuário (0 a 10). |
+| `text` | Texto da avaliação. |
+| `created_at` | Data/hora da avaliação. |
+
+### `bridge_movie_genre`
+
+Filme N:N gênero. ~20 mil filmes não têm gênero.
+
+| Coluna | Descrição |
+|---|---|
+| `sk_movie_id` | FK para dim_movies. |
+| `sk_genre_id` | FK para dim_genres. |
+
+### `bridge_movie_person`
+
+Filme N:N pessoa. O papel vem de dim_people.tipo_pessoa.
+
+| Coluna | Descrição |
+|---|---|
+| `sk_movie_id` | FK para dim_movies. |
+| `sk_person_id` | FK para dim_people. |
+
+### `bridge_movie_company`
+
+Filme N:N produtora.
+
+| Coluna | Descrição |
+|---|---|
+| `sk_movie_id` | FK para dim_movies. |
+| `sk_company_id` | FK para dim_companies. |
+
+## Caminhos de JOIN
+
+- Filme -> métricas: dim_movies JOIN fact_movies_performance USING (sk_movie_id)
+- Filme -> gênero: dim_movies JOIN bridge_movie_genre USING (sk_movie_id) JOIN dim_genres USING (sk_genre_id)
+- Filme -> pessoa: dim_movies JOIN bridge_movie_person USING (sk_movie_id) JOIN dim_people USING (sk_person_id), filtrando dim_people.tipo_pessoa
+- Filme -> produtora: dim_movies JOIN bridge_movie_company USING (sk_movie_id) JOIN dim_companies USING (sk_company_id)
+- Filme -> avaliações de usuários: dim_movies JOIN dim_reviews USING (sk_movie_id)
+- Dupla ator-diretor: bridge_movie_person (ator) JOIN bridge_movie_person (diretor) no mesmo sk_movie_id, cada lado com seu dim_people filtrado por tipo_pessoa
+
+## Regras de negócio
+
+1. Critério explícito na pergunta SEMPRE prevalece sobre as convenções padrão abaixo.
+2. 'Receita', 'faturamento' e 'bilheteria' são sinônimos: receita_brl / receita_usd.
+3. Moeda padrão: R$ (colunas *_brl). Use *_usd só se a pergunta pedir dólar. Nunca converta moeda manualmente: o câmbio é histórico e varia por filme.
+4. Receita só é informada em ~3,4 mil dos 95,6 mil filmes: filtre receita_brl IS NOT NULL em perguntas de receita.
+5. lucro_brl nunca é NULL, mas só é confiável com receita informada: vale 0 sem receita e orçamento, -orçamento sem receita, e = receita quando falta orçamento. Em perguntas de lucro, filtre no mínimo receita_brl IS NOT NULL.
+6. Margem de lucro = lucro_brl / receita_brl, só entre filmes com receita_brl > 0 e orcamento_brl > 0. Orçamentos abaixo de R$ 10 mil são provavelmente erro na fonte: avise o usuário quando aparecerem no topo.
+7. Margem média = AVG(lucro_brl / receita_brl). Ela é muito sensível a outliers (receitas ínfimas geram margens de -50.000x): ao responder, avise que a média é distorcida por eles.
+8. 'Nota' sem especificação = nota_imdb. 'Mais popular' = maior popularidade.
+9. Ao comparar ou ranquear notas sem critério na pergunta, exija qtd_imdb >= 100 e, se usar TMDB, qtd_tmdb >= 100.
+10. Comparações com a nota dos usuários (dim_reviews) exigem qtd_avaliacoes_usuarios >= 3, salvo critério na pergunta.
+11. 'Mais avaliados pelos usuários' = maior qtd_avaliacoes_usuarios (há muitos empates).
+12. Divergência entre notas = ABS(nota_a - nota_b), ambas não nulas.
+13. 'Últimos N anos' = data_lancamento entre date('now', '-N years') e date('now').
+14. Filmes com data futura ou status diferente de 'Lançado' ainda não foram lançados.
+15. Gêneros estão em inglês: traduza o termo do usuário (ex.: Ação -> Action, Ficção Científica -> Science Fiction, Comédia -> Comedy, Terror -> Horror).
+16. Agrupe por chaves sk_* (não por nome/título, que se repetem) e exiba nomes legíveis.
+17. Contagens de filmes por entidade usam COUNT(DISTINCT sk_movie_id).
+18. Nunca exiba colunas sk_* nem hashes no resultado.
+19. Popularidade corrompida em 4 filmes, com valor igual a um ano (ex.: 'La Fellinette' = 2020.0, 'Battipaglia 1969' = 1969.0). Se aparecerem no topo, avise que é erro da fonte.
+20. Há cadastros duplicados na fonte (ex.: dezenas de 'Die Hart 2: Die Harter' de 2024). Não deduplique, mas avise quando duplicatas dominarem o resultado.
+
+## Gêneros (português -> valor no banco)
+
+| Português | `nome_genero` |
+|---|---|
+| Ação | `Action` |
+| Aventura | `Adventure` |
+| Animação | `Animation` |
+| Comédia | `Comedy` |
+| Crime | `Crime` |
+| Documentário | `Documentary` |
+| Drama | `Drama` |
+| Família | `Family` |
+| Fantasia | `Fantasy` |
+| História | `History` |
+| Terror | `Horror` |
+| Música | `Music` |
+| Mistério | `Mystery` |
+| Romance | `Romance` |
+| Ficção Científica | `Science Fiction` |
+| Thriller / Suspense | `Thriller` |
+| Filme para TV | `Tv Movie` |
+| Guerra | `War` |
+| Faroeste | `Western` |

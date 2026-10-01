@@ -1,9 +1,3 @@
-"""Mostra quantas requisições gratuitas do OpenRouter ainda restam hoje.
-
-Não consome cota. Rode antes de cada bateria de testes/avaliação:
-    python scripts/check_quota.py
-"""
-
 from __future__ import annotations
 
 import sys

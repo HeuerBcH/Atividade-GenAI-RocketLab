@@ -13,7 +13,7 @@ Pré-requisitos: **Python 3.11+** e uma chave gratuita do [OpenRouter](https://o
 # 1. Ambiente virtual e dependências
 python -m venv .venv
 .venv\Scripts\activate          # Windows  |  source .venv/bin/activate (Linux/macOS)
-pip install -e ".[dev]"
+pip install -r requirements.txt
 
 # 2. Configuração
 cp .env.example .env            # preencha OPENROUTER_API_KEY
@@ -23,7 +23,7 @@ python scripts/prepare_db.py    # valida as tabelas e cria índices (~10 s, uma 
 
 # 4. Verificações
 python scripts/check_quota.py   # requisições gratuitas restantes hoje (não consome cota)
-pytest                          # testes offline (não consomem cota)
+pytest                          # testes (sem LLM: não consomem cota)
 ```
 
 > O banco (~580 MB) não é versionado porque excede o limite de arquivo do GitHub.
@@ -31,9 +31,14 @@ pytest                          # testes offline (não consomem cota)
 ## Estrutura
 
 ```
-src/cinedata_agent/   pacote principal (config, preparação do banco, cota)
-scripts/              utilitários de linha de comando
-tests/                testes automatizados (offline por padrão)
-docs/decisoes.md      registro das decisões técnicas e evidências
-data/                 banco SQLite local (ignorado pelo git)
+src/cinedata_agent/      pacote principal
+  semantic_layer.py      significado de negócio das tabelas (fonte do prompt e do dicionário)
+  golden.py              modelo do conjunto de avaliação
+  db_setup.py            preparação do banco (índices, estatísticas)
+eval/golden.yaml         22 perguntas de avaliação com SQL de referência
+scripts/                 utilitários de linha de comando
+tests/                   testes automatizados
+docs/decisoes.md         decisões técnicas e evidências
+docs/dicionario_dados.md dicionário de dados (gerado)
+data/                    banco SQLite local (ignorado pelo git)
 ```

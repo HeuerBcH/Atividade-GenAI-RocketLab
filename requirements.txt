@@ -1,0 +1,17 @@
+# Versões exatas com que o projeto foi desenvolvido e testado.
+# As faixas compatíveis ficam no pyproject.toml; este arquivo garante reprodutibilidade.
+# Instalação: pip install -r requirements.txt
+
+pydantic-ai-slim[openai]==2.52.0
+pydantic-settings==2.15.0
+fastapi==0.142.2
+uvicorn[standard]==0.54.0
+httpx==0.28.1
+pyyaml==6.0.3
+
+# Desenvolvimento (testes e lint)
+pytest==9.1.1
+ruff==0.16.10
+
+# Instala o próprio pacote (src/cinedata_agent) em modo editável
+-e .
