@@ -189,10 +189,21 @@ BUSINESS_RULES: tuple[str, ...] = (
     "Nunca exiba colunas sk_* nem hashes no resultado.",
     # Qualidade de dados conhecida (não corrigir; avisar o usuário quando afetar a resposta)
     "Popularidade corrompida em 4 filmes, com valor igual a um ano (ex.: 'La Fellinette' = "
-    "2020.0, 'Battipaglia 1969' = 1969.0). Se aparecerem no topo, avise que é erro da fonte.",
+    "2020.0, 'Battipaglia 1969' = 1969.0). NÃO os exclua da consulta: mantenha-os no "
+    "resultado e, se aparecerem no topo, avise na resposta que é erro da fonte.",
     "Há cadastros duplicados na fonte (ex.: dezenas de 'Die Hart 2: Die Harter' de 2024). "
-    "Não deduplique, mas avise quando duplicatas dominarem o resultado.",
+    "NÃO deduplique nem filtre: mantenha o resultado e avise quando duplicatas o dominarem.",
 )
+
+# Campos que a ferramenta `buscar_valores` pode consultar: (tabela, coluna, coluna extra exibida).
+# Allowlist fechada: o LLM escolhe um nome lógico e nunca injeta identificadores na SQL.
+SEARCHABLE_FIELDS: dict[str, tuple[str, str, str | None]] = {
+    "filme": ("dim_movies", "titulo", "ano_lancamento"),
+    "pessoa": ("dim_people", "nome_pessoa", "tipo_pessoa"),
+    "produtora": ("dim_companies", "nome_produtora", None),
+    "genero": ("dim_genres", "nome_genero", None),
+    "status": ("dim_movies", "status_filme", None),
+}
 
 GENRE_TRANSLATIONS: dict[str, str] = {
     "Ação": "Action",

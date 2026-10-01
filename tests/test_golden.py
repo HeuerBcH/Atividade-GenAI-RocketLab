@@ -9,6 +9,10 @@ from collections import Counter
 import pytest
 from pydantic import ValidationError
 
+from cinedata_agent import semantic_layer
+from cinedata_agent.config import get_settings
+from cinedata_agent.db import run_query
+from cinedata_agent.evaluation import Table, compare
 from cinedata_agent.golden import GoldenCase, GoldenSet, load_golden
 
 GOLDEN = load_golden()
@@ -107,3 +111,39 @@ def test_ordered_cases_have_no_tie_at_the_cutoff(
     if len(rows) > n:
         metric = columns.index(case.check.metric)
         assert rows[n - 1][metric] != rows[n][metric], f"empate na posição {n}"
+
+
+def test_reference_sql_uses_the_documented_thresholds() -> None:
+    """As SQLs de referência não podem divergir das constantes da camada semântica."""
+    expected = {
+        "qtd_imdb": semantic_layer.MIN_RATING_VOTES,
+        "qtd_tmdb": semantic_layer.MIN_RATING_VOTES,
+        "qtd_avaliacoes_usuarios": semantic_layer.MIN_USER_REVIEWS,
+    }
+    for case in SQL_CASES:
+        for column, value in re.findall(r"(\w+)\s*>=\s*(\d+)", case.sql):
+            if column in expected:
+                assert int(value) == expected[column], f"{case.id}: {column} >= {value}"
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("case", SQL_CASES, ids=lambda c: c.id)
+def test_reference_sql_passes_the_production_guardrails(case: GoldenCase, gold_conn) -> None:
+    """O caminho do agente (guardrail + authorizer + timeout) aceita todas as SQLs corretas."""
+    settings = get_settings()
+    result = run_query(
+        case.sql,
+        db_path=settings.db_path,
+        max_rows=settings.max_rows,
+        timeout_seconds=settings.query_timeout_seconds,
+    )
+    assert result.row_count > 0 and not result.truncated
+
+
+@pytest.mark.db
+@pytest.mark.parametrize("case", SQL_CASES, ids=lambda c: c.id)
+def test_comparator_accepts_the_reference_itself(case: GoldenCase, gold_conn) -> None:
+    columns, rows = _run(gold_conn, case.sql)
+    reference = Table(columns, [list(r) for r in rows])
+    verdict = compare(case, reference, reference)
+    assert verdict.passed, verdict.detail

@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from .config import Settings
 
 TIMEOUT_SECONDS = 10.0
+GROQ_LIMITS_URL = "https://console.groq.com/settings/limits"
 
 
 class QuotaError(RuntimeError):
@@ -47,6 +48,9 @@ def parse_key_response(payload: dict) -> QuotaStatus:
 
 
 def fetch_quota(settings: Settings, client: httpx.Client | None = None) -> QuotaStatus:
+    """Cota diária de modelos gratuitos do OpenRouter (o Groq não expõe esse endpoint)."""
+    if settings.llm_provider != "openrouter":
+        raise QuotaError(f"O Groq não informa a cota por API; consulte {GROQ_LIMITS_URL}.")
     if settings.openrouter_api_key is None:
         raise QuotaError("OPENROUTER_API_KEY não configurada (veja .env.example).")
 
@@ -66,3 +70,54 @@ def fetch_quota(settings: Settings, client: httpx.Client | None = None) -> Quota
     if response.is_error:
         raise QuotaError(f"OpenRouter respondeu HTTP {response.status_code}.")
     return parse_key_response(response.json())
+
+
+# ------------------------------------------------------------------- listagem de modelos
+class ModelInfo(BaseModel):
+    id: str
+    context_window: int | None = None
+    supports_tools: bool | None = None
+
+
+def parse_models(provider: str, payload: dict) -> list[ModelInfo]:
+    models = []
+    for item in payload.get("data") or []:
+        if provider == "groq":
+            if item.get("active") is False:
+                continue
+            models.append(ModelInfo(id=item["id"], context_window=item.get("context_window")))
+        elif item["id"].endswith(":free"):  # OpenRouter: só os gratuitos
+            params = item.get("supported_parameters") or []
+            models.append(
+                ModelInfo(
+                    id=item["id"],
+                    context_window=item.get("context_length"),
+                    supports_tools="tools" in params,
+                )
+            )
+    return sorted(models, key=lambda m: m.id)
+
+
+def list_models(settings: Settings, client: httpx.Client | None = None) -> list[ModelInfo]:
+    """Lista os modelos do provedor configurado (não consome cota de geração)."""
+    if settings.api_key is None:
+        variable = f"{settings.llm_provider.upper()}_API_KEY"
+        raise QuotaError(f"{variable} não configurada (veja .env.example).")
+    base = (
+        settings.groq_base_url if settings.llm_provider == "groq" else settings.openrouter_base_url
+    )
+    headers = {"Authorization": f"Bearer {settings.api_key.get_secret_value()}"}
+    owns_client = client is None
+    client = client or httpx.Client(timeout=TIMEOUT_SECONDS)
+    try:
+        response = client.get(f"{base}/models", headers=headers)
+    except httpx.HTTPError as exc:
+        raise QuotaError(f"Falha de rede ao listar modelos: {exc}") from exc
+    finally:
+        if owns_client:
+            client.close()
+    if response.status_code == 401:
+        raise QuotaError("Chave inválida ou revogada (HTTP 401).")
+    if response.is_error:
+        raise QuotaError(f"O provedor respondeu HTTP {response.status_code}.")
+    return parse_models(settings.llm_provider, response.json())

@@ -151,8 +151,8 @@ Filme N:N produtora.
 16. Agrupe por chaves sk_* (não por nome/título, que se repetem) e exiba nomes legíveis.
 17. Contagens de filmes por entidade usam COUNT(DISTINCT sk_movie_id).
 18. Nunca exiba colunas sk_* nem hashes no resultado.
-19. Popularidade corrompida em 4 filmes, com valor igual a um ano (ex.: 'La Fellinette' = 2020.0, 'Battipaglia 1969' = 1969.0). Se aparecerem no topo, avise que é erro da fonte.
-20. Há cadastros duplicados na fonte (ex.: dezenas de 'Die Hart 2: Die Harter' de 2024). Não deduplique, mas avise quando duplicatas dominarem o resultado.
+19. Popularidade corrompida em 4 filmes, com valor igual a um ano (ex.: 'La Fellinette' = 2020.0, 'Battipaglia 1969' = 1969.0). NÃO os exclua da consulta: mantenha-os no resultado e, se aparecerem no topo, avise na resposta que é erro da fonte.
+20. Há cadastros duplicados na fonte (ex.: dezenas de 'Die Hart 2: Die Harter' de 2024). NÃO deduplique nem filtre: mantenha o resultado e avise quando duplicatas o dominarem.
 
 ## Gêneros (português -> valor no banco)
 

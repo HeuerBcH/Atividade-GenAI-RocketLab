@@ -2,7 +2,7 @@
 # As faixas compatíveis ficam no pyproject.toml; este arquivo garante reprodutibilidade.
 # Instalação: pip install -r requirements.txt
 
-pydantic-ai-slim[openai]==2.52.0
+pydantic-ai-slim[openai,groq]==2.52.0
 pydantic-settings==2.15.0
 fastapi==0.142.2
 uvicorn[standard]==0.54.0
