@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cinedata-agent"
+version = "0.1.0"
+description = "Agente Text-to-SQL sobre a camada Gold da CineData Analytics (Rocket Lab 2026)."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Bernardo Heuer" }]
+dependencies = [
+    "pydantic-ai-slim[openai]>=2.52,<3",
+    "pydantic-settings>=2.15,<3",
+    "fastapi>=0.142,<1",
+    "uvicorn[standard]>=0.54,<1",
+    "httpx>=0.28,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.1,<10",
+    "ruff>=0.16,<0.17",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "scripts", "tests"]
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # pycodestyle
+    "F",        # pyflakes
+    "I",        # isort
+    "B",        # bugbear
+    "UP",       # pyupgrade
+    "SIM",      # simplify
+    "RUF",      # ruff-specific
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers -m 'not live'"
+markers = [
+    "live: chama a API real do OpenRouter e consome cota diária (rodar com `pytest -m live`)",
+]

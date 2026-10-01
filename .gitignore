@@ -1,0 +1,38 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# --- Ferramentas ---
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Segredos ---
+.env
+.env.*
+!.env.example
+
+# --- Dados ---
+# O banco (~580 MB) excede o limite do GitHub; cada pessoa baixa o seu (ver README).
+data/*
+!data/.gitkeep
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# --- Artefatos de execução ---
+logs/
+.cache/
+
+# --- IDE / SO ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

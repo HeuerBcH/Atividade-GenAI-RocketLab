@@ -1,0 +1,5 @@
+# Normaliza finais de linha (o projeto é desenvolvido no Windows e avaliado em qualquer SO).
+* text=auto eol=lf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+*.db binary
