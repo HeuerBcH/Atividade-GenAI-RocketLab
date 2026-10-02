@@ -321,3 +321,12 @@ def test_groq_parse_failure_is_retried_once(deps: AgentDeps) -> None:
 
     with pytest.raises(AgentError):
         _run(FunctionModel(always_broken), deps)
+
+
+def test_leaked_reasoning_is_not_accepted_as_the_answer(deps: AgentDeps) -> None:
+    # caso real: o gpt-oss devolveu o próprio raciocínio, em inglês, no lugar da resposta
+    leaked = "We have the top 3 movies. Need to answer in Portuguese, include assumptions."
+    model = _after_query([leaked, "O total de pessoas na base é 2."])
+    response, _ = _run(model, deps)
+    assert response.answer == "O total de pessoas na base é 2."
+    assert "raciocínio interno" in _errors(response.steps)

@@ -58,7 +58,7 @@ class Settings(BaseSettings):
         default="none", description="Nível de raciocínio pedido aos modelos que o suportam."
     )
     max_requests_per_question: int = Field(
-        default=8, ge=1, description="Teto de chamadas ao LLM por pergunta (protege a cota)."
+        default=10, ge=1, description="Teto de chamadas ao LLM por pergunta (protege a cota)."
     )
     model_timeout_seconds: float = Field(default=90.0, gt=0)
     question_timeout_seconds: float = Field(

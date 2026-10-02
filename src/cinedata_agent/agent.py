@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import date
@@ -229,6 +230,16 @@ def _evidence(messages: list[ModelMessage]) -> Evidence:
     return Evidence(numbers=numbers, texts=texts)
 
 
+_ENGLISH = re.compile(r"\b(the|we|need|should|answer|provide|user|have|with|include|let's)\b", re.I)
+_PORTUGUESE = re.compile(r"\b(o|a|os|as|de|do|da|que|com|em|foi|foram|é|são|filmes?)\b", re.I)
+
+
+def _looks_like_reasoning(text: str) -> bool:
+    # o gpt-oss às vezes devolve o próprio raciocínio, em inglês, como se fosse a resposta
+    english, portuguese = len(_ENGLISH.findall(text)), len(_PORTUGUESE.findall(text))
+    return english >= 3 and english > portuguese
+
+
 def _validate_answer(ctx: RunContext[AgentDeps], output: AgentOutput | str) -> AgentOutput | str:
     messages = ctx.messages
     last = max((i for i, m in enumerate(messages) if isinstance(m, ModelResponse)), default=None)
@@ -252,6 +263,12 @@ def _validate_answer(ctx: RunContext[AgentDeps], output: AgentOutput | str) -> A
 
     if isinstance(output, str) and len(output.strip()) < MIN_ANSWER_CHARS:
         raise ModelRetry("Responda ao usuário com o resultado da consulta, em 2 a 5 frases.")
+    answer = output if isinstance(output, str) else output.answer
+    if _looks_like_reasoning(answer):
+        raise ModelRetry(
+            "Isso é o seu raciocínio interno, não a resposta. Escreva a resposta final ao usuário, "
+            "em português, com os dados do resultado."
+        )
     evidence = _evidence(messages)
     text = output if isinstance(output, str) else " ".join([output.answer, *output.assumptions])
     numbers = ungrounded_numbers(text, evidence)
@@ -276,7 +293,7 @@ def build_agent(model: Model) -> Agent[AgentDeps, AgentOutput | str]:
         output_type=[AgentOutput, str],
         instructions=_instructions,
         tools=[Tool(buscar_valores, max_retries=2), Tool(executar_sql, max_retries=2)],
-        retries=3,
+        retries=5,
     )
     agent.output_validator(_validate_answer)
     return agent
