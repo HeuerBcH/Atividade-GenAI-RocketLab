@@ -7,6 +7,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 
 from . import __version__
@@ -19,17 +20,38 @@ from .service import CineDataService
 
 logger = logging.getLogger(__name__)
 
-EXAMPLES = [
-    "Quais são os 10 filmes com maior receita em R$?",
-    "Quais são os 5 filmes mais populares?",
-    "Qual dupla ator-diretor mais trabalhou junta?",
-    "Qual a quantidade de filmes por gênero?",
-    "Quais filmes foram mais avaliados pelos usuários?",
-]
+EXAMPLES: dict[str, list[str]] = {
+    "Bilheteria e Finanças": [
+        "Quais são os 10 filmes com maior receita em R$?",
+        "Qual o lucro médio por gênero, considerando apenas filmes com receita informada?",
+        "Quais filmes têm a maior margem de lucro, entre os que possuem receita e orçamento?",
+    ],
+    "Popularidade e Engajamento": [
+        "Quais são os 5 filmes mais populares?",
+        "Quais filmes têm a maior divergência entre a nota TMDB e a nota IMDb?",
+        "Qual a nota média IMDb por ano de lançamento?",
+    ],
+    "Elenco e Equipe": [
+        "Qual ator teve mais participações em filmes lançados nos últimos 5 anos?",
+        "Quais diretores têm a maior nota média, considerando um mínimo de 5 filmes?",
+        "Qual dupla ator-diretor mais trabalhou junta?",
+    ],
+    "Gêneros e Produtoras": [
+        "Qual a quantidade de filmes por gênero?",
+        "Qual produtora teve o maior lucro total?",
+        "Qual gênero tem a maior margem de lucro média?",
+    ],
+    "Avaliações dos Usuários": [
+        "Quais filmes foram mais avaliados pelos usuários?",
+        "Em quais filmes a nota média dos usuários mais diverge da nota IMDb?",
+    ],
+}
 
 
 class AskRequest(BaseModel):
-    question: str = Field(min_length=3, max_length=500, examples=EXAMPLES)
+    question: str = Field(
+        min_length=3, max_length=500, examples=[q for qs in EXAMPLES.values() for q in qs]
+    )
     session_id: str = Field(
         default="default",
         min_length=1,
@@ -52,6 +74,13 @@ def create_app(service: CineDataService | None = None) -> FastAPI:
         "somente leitura sobre a camada Gold.",
         version=__version__,
         lifespan=lifespan,
+    )
+
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=get_settings().cors_origins,
+        allow_methods=["GET", "POST", "DELETE"],
+        allow_headers=["Content-Type"],
     )
 
     def _service(request: Request) -> CineDataService:
@@ -96,7 +125,7 @@ def create_app(service: CineDataService | None = None) -> FastAPI:
         }
 
     @app.get("/examples", tags=["operação"])
-    async def examples() -> list[str]:
+    async def examples() -> dict[str, list[str]]:
         return EXAMPLES
 
     return app

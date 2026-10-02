@@ -74,7 +74,12 @@ class Settings(BaseSettings):
     )
     max_rows: int = Field(default=1000, ge=1, description="Teto de linhas devolvidas por consulta.")
 
-    @field_validator("model_name", mode="before")
+    cors_origins: Annotated[list[str], NoDecode] = Field(
+        default=["http://localhost:5173", "http://127.0.0.1:5173"],
+        description="Origens liberadas para o frontend (separadas por vírgula).",
+    )
+
+    @field_validator("model_name", "cors_origins", mode="before")
     @classmethod
     def _split_models(cls, value: object) -> object:
         # no .env a lista vem separada por vírgulas

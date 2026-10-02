@@ -37,15 +37,20 @@ python -m cinedata_agent "Qual dupla ator-diretor mais trabalhou junta?" --trace
 python -m cinedata_agent "..." --json                                              # resposta completa
 ```
 
-## Interface de chat (Streamlit)
+## Interface de chat (React)
+
+Requer **Node.js 20+**. Com a API rodando (seção abaixo), em outro terminal:
 
 ```bash
-streamlit run app/streamlit_app.py              # abre http://localhost:8501
+cd frontend
+npm install
+npm run dev                                     # abre http://localhost:5173
 ```
 
-Chat com memória da conversa, perguntas de exemplo por categoria, tabela de resultados, gráfico
-automático quando o resultado é um ranking ou uma série por ano, e a SQL e os passos do agente
-(ReAct) em seções expansíveis.
+Chat com memória da conversa, perguntas de exemplo por categoria, gráfico automático, tabela com
+download em CSV, e a SQL e os passos do agente (ReAct) em seções expansíveis. Se a API não estiver
+em `http://localhost:8000`, copie `frontend/.env.example` para `frontend/.env` e ajuste
+`VITE_API_BASE` (e `CORS_ORIGINS` no `.env` da API, se o frontend usar outra porta).
 
 ## API (FastAPI)
 
@@ -82,7 +87,7 @@ src/cinedata_agent/      pacote principal
   service.py             memória por sessão, cache de respostas e log de execuções
   api.py                 API FastAPI
 eval/golden.yaml         22 perguntas de avaliação com SQL de referência
-app/streamlit_app.py     interface de chat
+frontend/                interface de chat (React + Vite + Tailwind + Recharts)
 scripts/                 utilitários (preparar banco, cota, benchmark de modelos)
 tests/                   testes automatizados
 docs/decisoes.md         decisões técnicas e evidências

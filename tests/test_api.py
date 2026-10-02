@@ -47,3 +47,9 @@ def test_operational_routes(mini_gold_db: Path) -> None:
         assert len(client.get("/schema").json()["tables"]) == 10
         assert client.get("/examples").json()
         assert "/ask" in client.get("/openapi.json").json()["paths"]
+
+        preflight = client.options(
+            "/ask",
+            headers={"Origin": "http://localhost:5173", "Access-Control-Request-Method": "POST"},
+        )
+        assert preflight.headers["access-control-allow-origin"] == "http://localhost:5173"
