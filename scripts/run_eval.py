@@ -58,7 +58,7 @@ async def main() -> int:
         if (not args.ids or c.id in args.ids.split(","))
         and (not args.source or c.source == args.source)
     ]
-    results = _load_previous() if args.resume else {}
+    results = _load_previous()  # rodar só alguns casos não apaga o resultado dos outros
     agent = build_agent(build_model(settings))
     label = ",".join(settings.model_chain)
 

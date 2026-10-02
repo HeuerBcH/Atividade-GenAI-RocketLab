@@ -1,17 +1,17 @@
 # Relatório de avaliação
 
-Gerado em 01/10/2026 21:44. Critério: o resultado da SQL do agente precisa bater com o da SQL de referência (`eval/golden.yaml`); recusas não podem executar consulta.
+Gerado em 01/10/2026 21:56. Critério: o resultado da SQL do agente precisa bater com o da SQL de referência (`eval/golden.yaml`); recusas não podem executar consulta.
 
 ## Resumo
 
 | Métrica | Valor |
 |---|---|
-| Acerto geral | 13/14 (93%) |
-| Perguntas do enunciado | 13/14 (93%) |
+| Acerto geral | 14/14 (100%) |
+| Perguntas do enunciado | 14/14 (100%) |
 | Casos avaliados / total | 14/22 |
 | Chamadas ao LLM por pergunta (média) | 3.6 |
-| Tokens por pergunta (média) | 13,604 |
-| Latência por pergunta (média) | 27.8 s |
+| Tokens por pergunta (média) | 13,742 |
+| Latência por pergunta (média) | 31.6 s |
 | Modelo(s) | openai/gpt-oss-120b |
 
 ## Por categoria
@@ -22,7 +22,7 @@ Gerado em 01/10/2026 21:44. Critério: o resultado da SQL do agente precisa bate
 | Popularidade e Engajamento | 3/3 (100%) |
 | Elenco e Equipe | 3/3 (100%) |
 | Gêneros e Produtoras | 3/3 (100%) |
-| Avaliações dos Usuários | 1/2 (50%) |
+| Avaliações dos Usuários | 2/2 (100%) |
 
 ## Casos
 
@@ -129,19 +129,27 @@ LIMIT 5
 **Pergunta:** Quais filmes têm a maior divergência entre a nota TMDB e a nota IMDb?
 
 - Verificação: valores conferem
-- Resposta: Os 10 filmes com maior diferença entre a nota do TMDB e a do IMDb são, por exemplo, "Me Against You: Mr. S's Vendetta (2020)" com TMDB 8,13 e IMDb 1,7 (diferença 6,43), "5gang: A Different Kind Of Christmas (2019)" com TMDB 8,20 e IMDb 2,0 (diferença 6,20) e "Harry And Meghan: Escaping The Palace (2021)" com TMDB 6,76 e IMDb 2,6 (diferença 4,16). As demais listadas apresentam divergências entre 3,6 e 4,0 pontos.
-- Premissas: Considerei apenas filmes que têm nota tanto no TMDB quanto no IMDb; Exigi pelo menos 100 votos em cada fonte (qtd_imdb >= 100 e qtd_tmdb >= 100) para garantir relevância das notas
-- Custo: 4 chamada(s), 15,415 tokens, 26.2 s
+- Resposta: Os 10 filmes com maior diferença entre a nota do TMDB e a do IMDb são: 
+1. Me Against You: Mr. S's Vendetta (2020) – divergência de 6,43 pontos;
+2. 5gang: A Different Kind Of Christmas (2019) – 6,20;
+3. Harry And Meghan: Escaping The Palace (2021) – 4,16;
+4. Megalodon Rising (2021) – 4,01;
+5. Arctic Apocalypse (2019) – 4,00;
+6. Megaboa (2021) – 3,80;
+7. 365 Days (2020) – 3,76;
+8. A Nun's Curse (2020) – 3,71;
+9. No Manches Frida 2 (2019) – 3,69;
+10. The Flood (2023) – 3,64.
+Essas diferenças foram calculadas apenas para filmes que têm notas em ambas as plataformas e pelo menos 100 votos em cada uma delas.
+- Premissas: Considerei apenas filmes com nota_imdb não nula e nota_tmdb não nula.; Exigi que ambos tenham pelo menos 100 votos (qtd_imdb >= 100 e qtd_tmdb >= 100).
+- Custo: 3 chamada(s), 11,418 tokens, 30.0 s
 
 ```sql
-SELECT dm.titulo || ' (' || dm.ano_lancamento || ')' AS filme,
-       ROUND(fmp.nota_tmdb,2) AS nota_tmdb,
-       ROUND(fmp.nota_imdb,2) AS nota_imdb,
-       ROUND(ABS(fmp.nota_tmdb - fmp.nota_imdb),2) AS divergencia
+SELECT dm.titulo, dm.ano_lancamento,
+       ROUND(ABS(fmp.nota_tmdb - fmp.nota_imdb), 2) AS divergencia
 FROM dim_movies dm
 JOIN fact_movies_performance fmp USING (sk_movie_id)
-WHERE fmp.nota_tmdb IS NOT NULL
-  AND fmp.nota_imdb IS NOT NULL
+WHERE fmp.nota_imdb IS NOT NULL
   AND fmp.qtd_imdb >= 100
   AND fmp.qtd_tmdb >= 100
 ORDER BY divergencia DESC
@@ -326,8 +334,25 @@ ORDER BY dr.qtd_avaliacoes_usuarios DESC, dm.titulo
 LIMIT 10
 ```
 
-### AVA-02 — FALHA
+### AVA-02 — OK
 
 **Pergunta:** Em quais filmes a nota média dos usuários mais diverge da nota IMDb?
 
-- Verificação: Os modelos de IA estão indisponíveis no momento (limite de uso ou instabilidade do provedor). Tente novamente em instantes.
+- Verificação: valores conferem
+- Resposta: Os filmes em que a nota média dos usuários diverge mais da nota IMDb são: Bittersweet Memories: 14 Isolated Days To Make An Album (2023) (diferença 7,07), Save Ralph (2021) (7,03), One Piece Fan Letter (2024) (6,37), One Piece Fan Letter (2024) (6,23), The Internet And You (2016) (5,40), The Rose Family (2020) (5,27), Bunch Of Kunst - A Film About Sleaford Mods (2017) (5,17), Ena: Temptation Stairway (2021) (5,17), Velvet Buzzsaw (2019) (4,90) e Queen Rock Montreal (2024) (4,90).
+- Premissas: Considerei apenas filmes com nota IMDb (nota_imdb) e pelo menos 100 votos no IMDb (qtd_imdb >= 100).; Considerei avaliações de usuários apenas quando há nota média de usuários (nota_media_usuarios) e ao menos 3 avaliações (qtd_avaliacoes_usuarios >= 3).; A divergência foi calculada como o valor absoluto da diferença entre as duas notas, arredondada a duas casas decimais.
+- Custo: 5 chamada(s), 19,527 tokens, 76.4 s
+
+```sql
+SELECT dm.titulo || ' (' || dm.ano_lancamento || ')' AS filme,
+       ROUND(ABS(dr.nota_media_usuarios - fmp.nota_imdb), 2) AS divergencia
+FROM dim_movies dm
+JOIN fact_movies_performance fmp USING (sk_movie_id)
+JOIN dim_reviews dr USING (sk_movie_id)
+WHERE fmp.nota_imdb IS NOT NULL
+  AND fmp.qtd_imdb >= 100
+  AND dr.nota_media_usuarios IS NOT NULL
+  AND dr.qtd_avaliacoes_usuarios >= 3
+ORDER BY divergencia DESC
+LIMIT 10
+```

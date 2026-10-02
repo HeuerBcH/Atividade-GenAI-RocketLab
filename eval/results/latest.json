@@ -82,16 +82,16 @@
     "reasoning": "none",
     "passed": true,
     "detail": "valores conferem",
-    "answer": "Os 10 filmes com maior diferença entre a nota do TMDB e a do IMDb são, por exemplo, \"Me Against You: Mr. S's Vendetta (2020)\" com TMDB 8,13 e IMDb 1,7 (diferença 6,43), \"5gang: A Different Kind Of Christmas (2019)\" com TMDB 8,20 e IMDb 2,0 (diferença 6,20) e \"Harry And Meghan: Escaping The Palace (2021)\" com TMDB 6,76 e IMDb 2,6 (diferença 4,16). As demais listadas apresentam divergências entre 3,6 e 4,0 pontos.",
+    "answer": "Os 10 filmes com maior diferença entre a nota do TMDB e a do IMDb são: \n1. Me Against You: Mr. S's Vendetta (2020) – divergência de 6,43 pontos;\n2. 5gang: A Different Kind Of Christmas (2019) – 6,20;\n3. Harry And Meghan: Escaping The Palace (2021) – 4,16;\n4. Megalodon Rising (2021) – 4,01;\n5. Arctic Apocalypse (2019) – 4,00;\n6. Megaboa (2021) – 3,80;\n7. 365 Days (2020) – 3,76;\n8. A Nun's Curse (2020) – 3,71;\n9. No Manches Frida 2 (2019) – 3,69;\n10. The Flood (2023) – 3,64.\nEssas diferenças foram calculadas apenas para filmes que têm notas em ambas as plataformas e pelo menos 100 votos em cada uma delas.",
     "assumptions": [
-      "Considerei apenas filmes que têm nota tanto no TMDB quanto no IMDb",
-      "Exigi pelo menos 100 votos em cada fonte (qtd_imdb >= 100 e qtd_tmdb >= 100) para garantir relevância das notas"
+      "Considerei apenas filmes com nota_imdb não nula e nota_tmdb não nula.",
+      "Exigi que ambos tenham pelo menos 100 votos (qtd_imdb >= 100 e qtd_tmdb >= 100)."
     ],
-    "sql": "SELECT dm.titulo || ' (' || dm.ano_lancamento || ')' AS filme,\n       ROUND(fmp.nota_tmdb,2) AS nota_tmdb,\n       ROUND(fmp.nota_imdb,2) AS nota_imdb,\n       ROUND(ABS(fmp.nota_tmdb - fmp.nota_imdb),2) AS divergencia\nFROM dim_movies dm\nJOIN fact_movies_performance fmp USING (sk_movie_id)\nWHERE fmp.nota_tmdb IS NOT NULL\n  AND fmp.nota_imdb IS NOT NULL\n  AND fmp.qtd_imdb >= 100\n  AND fmp.qtd_tmdb >= 100\nORDER BY divergencia DESC\nLIMIT 10",
-    "requests": 4,
-    "input_tokens": 14121,
-    "output_tokens": 1294,
-    "latency_ms": 26162.6,
+    "sql": "SELECT dm.titulo, dm.ano_lancamento,\n       ROUND(ABS(fmp.nota_tmdb - fmp.nota_imdb), 2) AS divergencia\nFROM dim_movies dm\nJOIN fact_movies_performance fmp USING (sk_movie_id)\nWHERE fmp.nota_imdb IS NOT NULL\n  AND fmp.qtd_imdb >= 100\n  AND fmp.qtd_tmdb >= 100\nORDER BY divergencia DESC\nLIMIT 10",
+    "requests": 3,
+    "input_tokens": 10288,
+    "output_tokens": 1130,
+    "latency_ms": 30026.6,
     "error": null
   },
   {
@@ -245,17 +245,21 @@
   {
     "case_id": "AVA-02",
     "category": "avaliacoes_usuarios",
-    "model": "openai/gpt-oss-20b",
+    "model": "openai/gpt-oss-120b",
     "reasoning": "none",
-    "passed": false,
-    "detail": "ModelHTTPError: status_code: 400, model_name: openai/gpt-oss-20b, body: {'error': {'message': \"Parsing failed. The model generated output that could not be parsed. Please adjust your prompt. See 'failed_generation' for more details.\", 'type': 'invalid_request_error', 'code': 'output_parse_failed', 'failed_generation': 'We need to answer: \"Em quais filmes a nota média dos usuários mais diverge da nota IMDb?\" We already executed query. We need to produce answer with 2-5 sentences, highlight numbers. Also assumptions list. We should mention that we considered only films with at least 3 user reviews and at least 100 IMDb votes. Also note that data may have duplicates. Provide top 10. Provide answer.'}}",
-    "answer": null,
-    "assumptions": [],
-    "sql": null,
-    "requests": 0,
-    "input_tokens": 0,
-    "output_tokens": 0,
-    "latency_ms": 0.0,
-    "error": "Os modelos de IA estão indisponíveis no momento (limite de uso ou instabilidade do provedor). Tente novamente em instantes."
+    "passed": true,
+    "detail": "valores conferem",
+    "answer": "Os filmes em que a nota média dos usuários diverge mais da nota IMDb são: Bittersweet Memories: 14 Isolated Days To Make An Album (2023) (diferença 7,07), Save Ralph (2021) (7,03), One Piece Fan Letter (2024) (6,37), One Piece Fan Letter (2024) (6,23), The Internet And You (2016) (5,40), The Rose Family (2020) (5,27), Bunch Of Kunst - A Film About Sleaford Mods (2017) (5,17), Ena: Temptation Stairway (2021) (5,17), Velvet Buzzsaw (2019) (4,90) e Queen Rock Montreal (2024) (4,90).",
+    "assumptions": [
+      "Considerei apenas filmes com nota IMDb (nota_imdb) e pelo menos 100 votos no IMDb (qtd_imdb >= 100).",
+      "Considerei avaliações de usuários apenas quando há nota média de usuários (nota_media_usuarios) e ao menos 3 avaliações (qtd_avaliacoes_usuarios >= 3).",
+      "A divergência foi calculada como o valor absoluto da diferença entre as duas notas, arredondada a duas casas decimais."
+    ],
+    "sql": "SELECT dm.titulo || ' (' || dm.ano_lancamento || ')' AS filme,\n       ROUND(ABS(dr.nota_media_usuarios - fmp.nota_imdb), 2) AS divergencia\nFROM dim_movies dm\nJOIN fact_movies_performance fmp USING (sk_movie_id)\nJOIN dim_reviews dr USING (sk_movie_id)\nWHERE fmp.nota_imdb IS NOT NULL\n  AND fmp.qtd_imdb >= 100\n  AND dr.nota_media_usuarios IS NOT NULL\n  AND dr.qtd_avaliacoes_usuarios >= 3\nORDER BY divergencia DESC\nLIMIT 10",
+    "requests": 5,
+    "input_tokens": 17883,
+    "output_tokens": 1644,
+    "latency_ms": 76409.6,
+    "error": null
   }
 ]
