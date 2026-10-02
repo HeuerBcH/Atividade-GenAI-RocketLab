@@ -86,20 +86,22 @@ Todas vivem em `src/cinedata_agent/semantic_layer.py` (fonte única para o promp
 | Convenção | Evidência no banco |
 |---|---|
 | Critério explícito na pergunta prevalece sobre o padrão | O enunciado fixa critérios (ex.: "mínimo de 5 filmes"), que não podem ser sobrescritos. |
-| Lucro só com receita informada | `lucro_brl` nunca é NULL: vale 0 sem receita e orçamento, **−orçamento** sem receita (6.296 filmes) e **= receita** sem orçamento (1.743). |
-| Margem = lucro / receita, com receita e orçamento > 0 | O topo tem orçamentos de R$ 20–700 (erro na fonte) e a margem mínima é −54.090. O agente avisa sobre esses outliers. |
+| Lucro com receita **e** orçamento informados (só receita quando a pergunta disser "receita informada") | `lucro_brl` nunca é NULL: vale 0 sem receita e orçamento, **−orçamento** sem receita (6.296 filmes) e **= receita** sem orçamento (1.743). Somar esses casos mudaria o 3º lugar em "produtora com maior lucro total". |
+| Margem = lucro / receita, com receita e orçamento > 0 | Critério do enunciado; no banco, os 1.630 filmes com receita e orçamento informados têm ambos > 0. |
 | Moeda padrão R$, sem conversão manual | A taxa BRL/USD varia de 3,0 a 5,8 entre os filmes (câmbio histórico). |
-| Comparar notas exige ≥ 100 votos (IMDb/TMDB) | 33 mil filmes têm 0 votos no TMDB; sem mínimo, o ranking de divergência é ruído. |
-| Nota de usuários exige ≥ 3 avaliações | 93% dos filmes avaliados têm uma única avaliação (máximo: 13). |
+| Divergência entre notas: só exige as duas notas não nulas | Sem mínimo de votos (ver abaixo). |
 | Gêneros traduzidos PT → EN | `dim_genres` está em inglês; as perguntas chegam em português. |
 | Agrupar por `sk_*` e exibir título + ano | 1.518 grupos de título+ano duplicados; 48 mil nomes aparecem em mais de um papel. |
 | `idioma_original` não deve ser usado | A coluna é 100% NULL. |
 
-**Qualidade de dados: avisar em vez de corrigir.** Há popularidade corrompida (4 filmes com o
-ano gravado no lugar do índice, ex.: "La Fellinette" = 2020.0) e cadastros duplicados na fonte
-(dezenas de "Die Hart 2: Die Harter"). A camada Gold é a fonte de verdade da atividade, então
-o agente **não altera nem filtra** esses registros silenciosamente: ele responde com os dados e
-avisa o usuário quando o problema afeta a resposta.
+**A camada Gold é usada como está.** Ela já chega tratada da etapa de Engenharia de Dados, então
+o agente não exclui, corrige nem deduplica registros, não os classifica como erro e não aplica
+filtros que a pergunta não peça. Versões anteriores exigiam um mínimo de votos (≥ 100 no
+IMDb/TMDB, ≥ 3 avaliações de usuários) e avisavam sobre registros atípicos (popularidade igual ao
+ano, cadastros repetidos, orçamentos extremos). Isso foi removido por ser um tratamento fora da
+Gold: o enunciado não pede esses critérios. Quando um ranking fica dominado por empates ou por
+amostras pequenas, o usuário pode pedir o critério explicitamente ("com pelo menos 100 votos"),
+que prevalece sobre o padrão.
 
 ## D6 — Avaliação por execution accuracy
 

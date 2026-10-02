@@ -1,10 +1,18 @@
 import type { ReactNode } from "react";
 
-// o modelo responde com um markdown simples: parágrafos, listas e **negrito**
+// o modelo responde com um markdown simples: parágrafos, listas, **negrito**, *itálico* e `código`
 function inline(text: string): ReactNode[] {
-  return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
-    part.startsWith("**") && part.endsWith("**") ? <strong key={i}>{part.slice(2, -2)}</strong> : part,
-  );
+  return text.split(/(\*\*[^*]+\*\*|\*[^*\s][^*]*\*|`[^`]+`)/g).map((part, i) => {
+    if (part.startsWith("**") && part.endsWith("**")) return <strong key={i}>{part.slice(2, -2)}</strong>;
+    if (part.startsWith("`") && part.endsWith("`"))
+      return (
+        <code key={i} className="rounded bg-slate-100 px-1 py-0.5 font-mono text-[0.85em] dark:bg-slate-800">
+          {part.slice(1, -1)}
+        </code>
+      );
+    if (part.length > 2 && part.startsWith("*") && part.endsWith("*")) return <em key={i}>{part.slice(1, -1)}</em>;
+    return part;
+  });
 }
 
 export function AnswerText({ text }: { text: string }) {

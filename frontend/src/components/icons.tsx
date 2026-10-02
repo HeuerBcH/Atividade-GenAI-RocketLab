@@ -135,3 +135,32 @@ export const StarIcon = (p: P) => (
     <path d="m12 2 3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01Z" />
   </Icon>
 );
+export const TableIcon = (p: P) => (
+  <Icon {...p}>
+    <rect x="3" y="4" width="18" height="16" rx="2" />
+    <path d="M3 10h18M3 15h18M9 10v10" />
+  </Icon>
+);
+export const ChartIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M3 3v18h18" />
+    <path d="M7 15v2M11 11v6M15 7v10M19 12v5" />
+  </Icon>
+);
+export const BulbIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M9 18h6M10 22h4" />
+    <path d="M12 2a7 7 0 0 0-4 12.74V16h8v-1.26A7 7 0 0 0 12 2Z" />
+  </Icon>
+);
+export const RefreshIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M21 12a9 9 0 1 1-2.64-6.36L21 8" />
+    <path d="M21 3v5h-5" />
+  </Icon>
+);
+export const ChatIcon = (p: P) => (
+  <Icon {...p}>
+    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2Z" />
+  </Icon>
+);

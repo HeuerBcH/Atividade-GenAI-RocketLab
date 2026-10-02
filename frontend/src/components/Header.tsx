@@ -1,56 +1,49 @@
 import type { Health } from "../types";
-import { FilmIcon, MenuIcon, MoonIcon, PlusIcon, SunIcon } from "./icons";
+import { MenuIcon, MoonIcon, PlusIcon, SunIcon } from "./icons";
 
 interface Props {
+  title: string;
   health: Health | null | undefined;
   theme: "light" | "dark";
   onToggleTheme: () => void;
-  onOpenHistory: () => void;
+  onOpenMenu: () => void;
   onNewConversation: () => void;
 }
 
 const iconButton =
-  "grid h-9 w-9 place-items-center rounded-lg text-slate-500 transition hover:bg-brand-50 hover:text-brand-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-brand-200";
+  "grid h-9 w-9 place-items-center rounded-lg text-slate-500 transition hover:bg-slate-100 hover:text-brand-700 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-brand-200";
 
 function Status({ health }: { health: Health | null | undefined }) {
-  const online = Boolean(health);
-  const label = health === undefined ? "Conectando..." : health ? health.models[0] : "API offline";
+  const state = health === undefined ? "connecting" : health ? "online" : "offline";
+  const label = { connecting: "Conectando...", online: health?.models[0], offline: "API offline" }[state];
+  const dot = { connecting: "bg-amber-400 animate-pulse", online: "bg-emerald-500", offline: "bg-rose-500" }[state];
   return (
-    <span className="hidden items-center gap-2 rounded-full border border-slate-200 bg-white/70 px-3 py-1 text-xs text-slate-600 sm:flex dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300">
-      <span className={`h-2 w-2 rounded-full ${online ? "bg-emerald-500" : "bg-rose-500"}`} />
+    <span
+      title={health ? `Provedor: ${health.provider}` : undefined}
+      className="hidden items-center gap-2 rounded-full border border-slate-200 bg-white/70 px-3 py-1 text-xs text-slate-600 sm:flex dark:border-slate-700 dark:bg-slate-900/70 dark:text-slate-300"
+    >
+      <span className={`h-2 w-2 rounded-full ${dot}`} />
       {label}
     </span>
   );
 }
 
-export function Header({ health, theme, onToggleTheme, onOpenHistory, onNewConversation }: Props) {
+export function Header({ title, health, theme, onToggleTheme, onOpenMenu, onNewConversation }: Props) {
   return (
-    <header className="sticky top-0 z-20 flex items-center justify-between border-b border-brand-100/70 bg-white/80 px-4 py-3 shadow-soft backdrop-blur-md dark:border-brand-900/40 dark:bg-slate-950/80 sm:px-6">
-      <div className="flex min-w-0 items-center gap-3">
-        <button className={iconButton} onClick={onOpenHistory} aria-label="Histórico de conversas">
+    <header className="flex h-14 shrink-0 items-center justify-between gap-3 border-b border-slate-200 bg-white/70 px-3 backdrop-blur-md sm:px-5 dark:border-slate-800 dark:bg-slate-950/70">
+      <div className="flex min-w-0 items-center gap-2">
+        <button className={`${iconButton} lg:hidden`} onClick={onOpenMenu} aria-label="Abrir conversas">
           <MenuIcon className="h-5 w-5" />
         </button>
-        <div className="grid h-9 w-9 place-items-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-800 text-white shadow-sm shadow-brand-700/30">
-          <FilmIcon className="h-5 w-5" />
-        </div>
-        <div className="min-w-0">
-          <h1 className="truncate text-base font-semibold leading-tight">CineData Analyst</h1>
-          <p className="hidden text-xs text-slate-500 dark:text-slate-400 sm:block">
-            Perguntas em linguagem natural sobre o catálogo de filmes
-          </p>
-        </div>
+        <h1 className="truncate text-sm font-medium text-slate-700 dark:text-slate-200">{title}</h1>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="flex shrink-0 items-center gap-1.5">
         <Status health={health} />
-        <button className={iconButton} onClick={onToggleTheme} aria-label="Alternar tema">
+        <button className={iconButton} onClick={onToggleTheme} aria-label="Alternar tema claro/escuro">
           {theme === "dark" ? <SunIcon className="h-5 w-5" /> : <MoonIcon className="h-5 w-5" />}
         </button>
-        <button
-          onClick={onNewConversation}
-          className="flex items-center gap-1.5 rounded-lg bg-brand-600 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-brand-700"
-        >
-          <PlusIcon />
-          <span className="hidden sm:inline">Nova conversa</span>
+        <button className={`${iconButton} lg:hidden`} onClick={onNewConversation} aria-label="Nova conversa">
+          <PlusIcon className="h-5 w-5" />
         </button>
       </div>
     </header>

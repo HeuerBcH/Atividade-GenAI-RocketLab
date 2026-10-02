@@ -133,25 +133,25 @@ Filme N:N produtora.
 
 ## Regras de negócio
 
-1. Critério explícito na pergunta SEMPRE prevalece sobre as convenções padrão abaixo.
-2. 'Receita', 'faturamento' e 'bilheteria' são sinônimos: receita_brl / receita_usd.
-3. Moeda padrão: R$ (colunas *_brl). Use *_usd só se a pergunta pedir dólar. Nunca converta moeda manualmente: o câmbio é histórico e varia por filme.
-4. Receita só é informada em ~3,4 mil dos 95,6 mil filmes: filtre receita_brl IS NOT NULL em perguntas de receita.
-5. lucro_brl nunca é NULL, mas só é confiável com receita informada: vale 0 sem receita e orçamento, -orçamento sem receita, e = receita quando falta orçamento. Em perguntas de lucro, filtre no mínimo receita_brl IS NOT NULL.
-6. Margem de lucro = lucro_brl / receita_brl, só entre filmes com receita_brl > 0 e orcamento_brl > 0. Orçamentos abaixo de R$ 10 mil são provavelmente erro na fonte: avise o usuário quando aparecerem no topo.
-7. Margem média = AVG(lucro_brl / receita_brl). Ela é muito sensível a outliers (receitas ínfimas geram margens de -50.000x): ao responder, avise que a média é distorcida por eles.
-8. 'Nota' sem especificação = nota_imdb. 'Mais popular' = maior popularidade.
-9. Divergência entre notas = ABS(nota_a - nota_b), com OBRIGATORIAMENTE: ambas não nulas, qtd_imdb >= 100 se usar IMDb, qtd_tmdb >= 100 se usar TMDB e qtd_avaliacoes_usuarios >= 3 se usar a nota dos usuários (sem isso o topo é só ruído de notas zeradas).
-10. Ranking de filmes individuais por nota ('melhor filme') exige qtd_imdb >= 100. Médias agregadas (por ano, diretor, gênero) usam todos os filmes com nota não nula, sem mínimo de votos.
-11. 'Mais avaliados pelos usuários' = maior qtd_avaliacoes_usuarios (há muitos empates).
-12. 'Últimos N anos' = data_lancamento entre date('now', '-N years') e date('now').
-13. Não filtre status_filme por padrão: todo o catálogo conta. Só use status_filme = 'Lançado' se a pergunta restringir a filmes já lançados.
-14. Gêneros estão em inglês: traduza o termo do usuário (ex.: Ação -> Action, Ficção Científica -> Science Fiction, Comédia -> Comedy, Terror -> Horror).
-15. Agrupe por chaves sk_* (não por nome/título, que se repetem) e exiba nomes legíveis.
-16. Contagens de filmes por entidade usam COUNT(DISTINCT sk_movie_id).
-17. Nunca exiba colunas sk_* nem hashes no resultado.
-18. Popularidade corrompida em 4 filmes, com valor igual a um ano (ex.: 'La Fellinette' = 2020.0, 'Battipaglia 1969' = 1969.0). NÃO os exclua da consulta: mantenha-os no resultado e, se aparecerem no topo, avise na resposta que é erro da fonte.
-19. Há cadastros duplicados na fonte (ex.: dezenas de 'Die Hart 2: Die Harter' de 2024). NÃO deduplique nem filtre: mantenha o resultado e avise quando duplicatas o dominarem.
+1. A camada Gold já está tratada e é a fonte de verdade: use os valores como estão. Não exclua, corrija nem deduplique registros, não os classifique como erro e não acrescente filtros além dos pedidos na pergunta ou previstos nestas regras.
+2. Critério explícito na pergunta SEMPRE prevalece sobre as convenções padrão abaixo.
+3. NULL significa dado ausente: não o substitua por zero. Zero informado é um valor válido.
+4. 'Receita', 'faturamento' e 'bilheteria' são sinônimos: receita_brl / receita_usd.
+5. Moeda padrão: R$ (colunas *_brl). Use *_usd só se a pergunta pedir dólar. Nunca converta moeda manualmente: o câmbio é histórico e varia por filme.
+6. Receita só é informada em ~3,4 mil dos 95,6 mil filmes: filtre receita_brl IS NOT NULL em perguntas de receita.
+7. lucro_brl nunca é NULL: vale 0 sem receita e orçamento, -orçamento sem receita, e = receita quando falta orçamento. Em perguntas de lucro, filtre receita_brl IS NOT NULL AND orcamento_brl IS NOT NULL. Se a pergunta pedir só 'receita informada', filtre apenas receita_brl IS NOT NULL. Declare o filtro nas premissas.
+8. Margem de lucro = lucro_brl / receita_brl, só entre filmes com receita_brl > 0 e orcamento_brl > 0.
+9. Margem média = AVG(lucro_brl / receita_brl), a média das margens de cada filme.
+10. 'Nota' sem especificação = nota_imdb. 'Mais popular' = maior popularidade.
+11. Divergência entre notas = ABS(nota_a - nota_b), com as duas notas não nulas.
+12. Médias de notas usam todos os filmes com nota não nula.
+13. 'Mais avaliados pelos usuários' = maior qtd_avaliacoes_usuarios (há muitos empates).
+14. 'Últimos N anos' = data_lancamento entre date('now', '-N years') e date('now').
+15. Não filtre status_filme por padrão: todo o catálogo conta. Só use status_filme = 'Lançado' se a pergunta restringir a filmes já lançados.
+16. Gêneros estão em inglês: traduza o termo do usuário (ex.: Ação -> Action, Ficção Científica -> Science Fiction, Comédia -> Comedy, Terror -> Horror).
+17. Agrupe por chaves sk_* (não por nome/título, que se repetem) e exiba nomes legíveis.
+18. Contagens de filmes por entidade usam COUNT(DISTINCT sk_movie_id).
+19. Nunca exiba colunas sk_* nem hashes no resultado.
 
 ## Gêneros (português -> valor no banco)
 

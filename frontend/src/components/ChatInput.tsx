@@ -1,8 +1,19 @@
-import { useState, type FormEvent, type KeyboardEvent } from "react";
+import { useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { SendIcon } from "./icons";
+
+const MAX_LENGTH = 500;
 
 export function ChatInput({ disabled, onSend }: { disabled: boolean; onSend: (q: string) => void }) {
   const [text, setText] = useState("");
+  const area = useRef<HTMLTextAreaElement>(null);
+
+  // a caixa cresce com o texto até o max-h
+  useLayoutEffect(() => {
+    const el = area.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [text]);
 
   function submit(event?: FormEvent) {
     event?.preventDefault();
@@ -12,20 +23,23 @@ export function ChatInput({ disabled, onSend }: { disabled: boolean; onSend: (q:
   }
 
   function onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key === "Enter" && !event.shiftKey) submit(event);
+    if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) submit(event);
   }
 
+  const nearLimit = text.length > MAX_LENGTH * 0.8;
   return (
-    <form onSubmit={submit} className="mx-auto max-w-4xl">
-      <div className="flex items-end gap-2 rounded-2xl border border-brand-100 bg-white p-2 shadow-soft transition focus-within:border-brand-400 focus-within:ring-4 focus-within:ring-brand-500/10 dark:border-brand-900/50 dark:bg-slate-900">
+    <form onSubmit={submit} className="mx-auto max-w-3xl">
+      <div className="flex items-end gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-soft transition focus-within:border-brand-400 focus-within:ring-4 focus-within:ring-brand-500/10 dark:border-slate-700 dark:bg-slate-900">
         <textarea
+          ref={area}
           value={text}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
           rows={1}
-          maxLength={500}
+          maxLength={MAX_LENGTH}
+          aria-label="Sua pergunta"
           placeholder="Pergunte sobre receita, popularidade, elenco, gêneros ou avaliações..."
-          className="max-h-40 min-h-[44px] flex-1 resize-none bg-transparent px-3 py-2.5 text-sm outline-none placeholder:text-slate-400"
+          className="scrollbar-soft max-h-40 min-h-[44px] flex-1 resize-none bg-transparent px-3 py-2.5 text-sm outline-none placeholder:text-slate-400"
         />
         <button
           type="submit"
@@ -36,9 +50,15 @@ export function ChatInput({ disabled, onSend }: { disabled: boolean; onSend: (q:
           <SendIcon />
         </button>
       </div>
-      <p className="mt-2 text-center text-[11px] text-slate-400">
-        Enter envia · Shift+Enter quebra a linha · as respostas vêm direto do banco e podem levar até um minuto
-      </p>
+      <div className="mt-2 flex justify-between gap-3 px-1 text-[11px] text-slate-400">
+        <span className="hidden sm:inline">
+          <kbd className="font-sans font-semibold">Enter</kbd> envia ·{" "}
+          <kbd className="font-sans font-semibold">Shift+Enter</kbd> quebra a linha
+        </span>
+        <span className={`ml-auto ${nearLimit ? "text-amber-600 dark:text-amber-400" : ""}`}>
+          {nearLimit ? `${text.length}/${MAX_LENGTH}` : "As respostas podem levar até um minuto"}
+        </span>
+      </div>
     </form>
   );
 }

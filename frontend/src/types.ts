@@ -35,6 +35,8 @@ export type ChatMessage =
       id: string;
       role: "assistant";
       status: "loading" | "done" | "error";
+      question?: string; // para refazer a pergunta quando der erro
+      startedAt?: number;
       response?: AskResponse;
       error?: string;
     };

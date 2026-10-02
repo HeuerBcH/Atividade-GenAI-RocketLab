@@ -56,7 +56,6 @@ cases:
     check: {mode: values, metric: margem_lucro, top_n: 10}
     assumptions:
       - Margem = lucro / receita.
-      - O topo é dominado por orçamentos ínfimos (provável erro na fonte); o agente deve avisar.
 
   # ------------------------------------------------------ Popularidade e Engajamento
   - id: POP-01
@@ -70,8 +69,6 @@ cases:
       ORDER BY f.popularidade DESC
       LIMIT 5
     check: {mode: ordered, key: [titulo], metric: popularidade, top_n: 5}
-    assumptions:
-      - Posições 3 e 4 têm popularidade corrompida na fonte (valor igual ao ano); o agente deve avisar.
 
   - id: POP-02
     category: popularidade_engajamento
@@ -82,12 +79,12 @@ cases:
              ROUND(ABS(f.nota_tmdb - f.nota_imdb), 3) AS divergencia
       FROM fact_movies_performance f
       JOIN dim_movies m USING (sk_movie_id)
-      WHERE f.nota_imdb IS NOT NULL AND f.qtd_tmdb >= 100 AND f.qtd_imdb >= 100
+      WHERE f.nota_tmdb IS NOT NULL AND f.nota_imdb IS NOT NULL
       ORDER BY divergencia DESC
       LIMIT 10
     check: {mode: values, metric: divergencia, top_n: 10}
     assumptions:
-      - Mínimo de 100 votos em cada plataforma (convenção; sem isso o topo é ruído de filmes sem votos).
+      - Só exige as duas notas informadas; o topo tem muitos empates, por isso compara-se a divergência.
 
   - id: POP-03
     category: popularidade_engajamento
@@ -180,13 +177,13 @@ cases:
       FROM fact_movies_performance f
       JOIN bridge_movie_company bc USING (sk_movie_id)
       JOIN dim_companies c USING (sk_company_id)
-      WHERE f.receita_brl IS NOT NULL
+      WHERE f.receita_brl IS NOT NULL AND f.orcamento_brl IS NOT NULL
       GROUP BY c.sk_company_id
       ORDER BY lucro_total_brl DESC
       LIMIT 5
     check: {mode: ordered, key: [nome_produtora], metric: lucro_total_brl, top_n: 1}
     assumptions:
-      - Lucro só de filmes com receita informada (a líder é a mesma com ou sem esse filtro).
+      - Lucro só de filmes com receita e orçamento informados (sem orçamento, o lucro gravado é igual à receita).
 
   - id: GEN-03
     category: generos_produtoras
@@ -202,8 +199,6 @@ cases:
       GROUP BY g.sk_genre_id
       ORDER BY margem_media DESC
     check: {mode: ordered, key: [nome_genero], metric: margem_media, top_n: 1}
-    assumptions:
-      - Todas as médias são negativas por causa de outliers (receitas ínfimas); o agente deve avisar.
 
   # ---------------------------------------------------------- Avaliações dos Usuários
   - id: AVA-01
@@ -219,7 +214,6 @@ cases:
     check: {mode: values, metric: qtd_avaliacoes_usuarios, top_n: 10, rel_tol: 0}
     assumptions:
       - Há empates a partir da 4ª posição; por isso compara-se a contagem, não o título.
-      - O topo é dominado por cadastros duplicados de "Die Hart" na fonte; o agente deve avisar.
 
   - id: AVA-02
     category: avaliacoes_usuarios
@@ -232,13 +226,12 @@ cases:
       FROM dim_reviews r
       JOIN fact_movies_performance f USING (sk_movie_id)
       JOIN dim_movies m USING (sk_movie_id)
-      WHERE f.nota_imdb IS NOT NULL
-        AND r.qtd_avaliacoes_usuarios >= 3 AND f.qtd_imdb >= 100
+      WHERE r.nota_media_usuarios IS NOT NULL AND f.nota_imdb IS NOT NULL
       ORDER BY divergencia DESC
       LIMIT 10
     check: {mode: values, metric: divergencia, top_n: 10}
     assumptions:
-      - Mínimo de 3 avaliações de usuários e 100 votos no IMDb (convenção; 93% dos filmes têm 1 avaliação).
+      - Só exige as duas notas informadas.
 
   # ------------------------------------------------------------------------ Robustez
   - id: EXT-01
@@ -296,12 +289,12 @@ cases:
       SELECT m.titulo, f.nota_imdb, f.qtd_imdb
       FROM fact_movies_performance f
       JOIN dim_movies m USING (sk_movie_id)
-      WHERE m.ano_lancamento = 2019 AND f.qtd_imdb >= 100
+      WHERE m.ano_lancamento = 2019 AND f.nota_imdb IS NOT NULL
       ORDER BY f.nota_imdb DESC
       LIMIT 5
     check: {mode: values, metric: nota_imdb, top_n: 1}
     assumptions:
-      - Pergunta ambígua; o agente deve declarar a premissa (melhor = maior nota IMDb com >= 100 votos).
+      - Pergunta ambígua; o agente deve declarar a premissa (melhor = maior nota IMDb).
 
   - id: EXT-05
     category: robustez

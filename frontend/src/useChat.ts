@@ -19,10 +19,16 @@ function load(): Store {
     const saved = localStorage.getItem(STORAGE_KEY);
     if (saved) {
       const store = JSON.parse(saved) as Store;
-      // respostas que estavam carregando quando a página fechou não voltam mais
+      // a resposta que estava carregando quando a página fechou não volta mais: vira um erro
+      // com "Tentar novamente", para a pergunta não ficar sem resposta
       const conversations = store.conversations.map((c) => ({
         ...c,
-        messages: c.messages.filter((m) => !(m.role === "assistant" && m.status === "loading")),
+        messages: c.messages.map(
+          (m): ChatMessage =>
+            m.role === "assistant" && m.status === "loading"
+              ? { ...m, status: "error", error: "A página foi recarregada antes da resposta chegar." }
+              : m,
+        ),
       }));
       if (conversations.some((c) => c.id === store.currentId)) return { ...store, conversations };
     }
@@ -50,33 +56,48 @@ export function useChat() {
     setStore((s) => ({ ...s, conversations: s.conversations.map((c) => (c.id === id ? change(c) : c)) }));
   }
 
-  async function send(question: string) {
-    const text = question.trim();
-    if (!text || busy) return;
-    const conversationId = current.id;
-    const answerId = crypto.randomUUID();
-    updateConversation(conversationId, (c) => ({
-      ...c,
-      title: c.messages.length === 0 ? text.slice(0, 60) : c.title,
-      messages: [
-        ...c.messages,
-        { id: crypto.randomUUID(), role: "user", content: text },
-        { id: answerId, role: "assistant", status: "loading" },
-      ],
-    }));
-
+  async function run(conversationId: string, answerId: string, text: string) {
     let result: ChatMessage;
     try {
       const response = await ask(text, conversationId);
-      result = { id: answerId, role: "assistant", status: "done", response };
+      result = { id: answerId, role: "assistant", status: "done", question: text, response };
     } catch (err) {
       const error = err instanceof Error ? err.message : "Erro inesperado.";
-      result = { id: answerId, role: "assistant", status: "error", error };
+      result = { id: answerId, role: "assistant", status: "error", question: text, error };
     }
     updateConversation(conversationId, (c) => ({
       ...c,
       messages: c.messages.map((m) => (m.id === answerId ? result : m)),
     }));
+  }
+
+  async function send(question: string) {
+    const text = question.trim();
+    if (!text || busy) return;
+    const answerId = crypto.randomUUID();
+    updateConversation(current.id, (c) => ({
+      ...c,
+      title: c.messages.length === 0 ? text.slice(0, 60) : c.title,
+      messages: [
+        ...c.messages,
+        { id: crypto.randomUUID(), role: "user", content: text },
+        { id: answerId, role: "assistant", status: "loading", question: text, startedAt: Date.now() },
+      ],
+    }));
+    await run(current.id, answerId, text);
+  }
+
+  async function retry(answerId: string) {
+    const message = current.messages.find((m) => m.id === answerId);
+    if (busy || message?.role !== "assistant" || !message.question) return;
+    const text = message.question;
+    updateConversation(current.id, (c) => ({
+      ...c,
+      messages: c.messages.map((m) =>
+        m.id === answerId ? { id: answerId, role: "assistant", status: "loading", question: text, startedAt: Date.now() } : m,
+      ),
+    }));
+    await run(current.id, answerId, text);
   }
 
   function startNew() {
@@ -105,5 +126,5 @@ export function useChat() {
   }
 
   const history = store.conversations.filter((c) => c.messages.length > 0);
-  return { current, history, busy, send, startNew, open, remove };
+  return { current, history, busy, send, retry, startNew, open, remove };
 }

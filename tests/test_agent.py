@@ -330,3 +330,39 @@ def test_leaked_reasoning_is_not_accepted_as_the_answer(deps: AgentDeps) -> None
     response, _ = _run(model, deps)
     assert response.answer == "O total de pessoas na base é 2."
     assert "raciocínio interno" in _errors(response.steps)
+
+
+def test_tool_call_written_as_text_is_parsed() -> None:
+    from cinedata_agent.agent import _parse_text_answer
+
+    # caso real (JSON inválido): a chamada da ferramenta veio escrita como texto
+    broken = '{"name": "final_result", "arguments": Desculpe, mas eu só respondo sobre filmes."}'
+    assert _parse_text_answer(broken).answer == "Desculpe, mas eu só respondo sobre filmes."
+
+    valid = (
+        '{"name": "final_result", '
+        '"arguments": {"answer": "Há 2 pessoas na base.", "assumptions": ["x"]}}'
+    )
+    parsed = _parse_text_answer(valid)
+    assert (parsed.answer, parsed.assumptions) == ("Há 2 pessoas na base.", ["x"])
+
+    # caso real: o formato estruturado escrito em markdown
+    labeled = (
+        "**answer**: Os dez filmes com a menor nota têm nota 1,0.\n"
+        "**assumptions**:\n- Considerei apenas filmes com qtd_imdb >= 100."
+    )
+    parsed = _parse_text_answer(labeled)
+    assert parsed.answer == "Os dez filmes com a menor nota têm nota 1,0."
+    assert parsed.assumptions == ["Considerei apenas filmes com qtd_imdb >= 100."]
+
+    # caso real: resposta normal seguida de uma seção "Assumptions:"
+    trailing = (
+        "Os 10 filmes com a menor nota no IMDb têm nota 1,0.\n\n"
+        "**Assumptions:**\n- Filtrei por qtd_imdb >= 100.\n- Ordenei pela nota crescente."
+    )
+    parsed = _parse_text_answer(trailing)
+    assert parsed.answer == "Os 10 filmes com a menor nota no IMDb têm nota 1,0."
+    assert parsed.assumptions == ["Filtrei por qtd_imdb >= 100.", "Ordenei pela nota crescente."]
+
+    plain = "Resposta normal ao usuário."
+    assert _parse_text_answer(plain).answer == plain

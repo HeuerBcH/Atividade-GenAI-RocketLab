@@ -1,4 +1,4 @@
-import { downloadCsv, formatCell } from "../format";
+import { columnLabel, downloadCsv, formatCell } from "../format";
 import { DownloadIcon } from "./icons";
 
 const SHOWN_ROWS = 50;
@@ -10,16 +10,18 @@ interface Props {
 }
 
 export function ResultTable({ columns, rows, truncated }: Props) {
-  const numeric = columns.map((_, i) => rows.every((r) => r[i] === null || typeof r[i] === "number"));
+  const numeric = columns.map(
+    (c, i) => !/^ano/i.test(c) && rows.every((r) => r[i] === null || typeof r[i] === "number"),
+  );
   return (
-    <div className="overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700">
+    <div>
       <div className="scrollbar-soft max-h-80 overflow-auto">
         <table className="w-full text-left text-sm">
-          <thead className="sticky top-0 bg-slate-50 text-xs uppercase tracking-wide text-slate-500 dark:bg-slate-800 dark:text-slate-400">
+          <thead className="sticky top-0 bg-slate-50 text-xs text-slate-500 dark:bg-slate-800 dark:text-slate-400">
             <tr>
               {columns.map((c, i) => (
                 <th key={c} className={`whitespace-nowrap px-3 py-2 font-semibold ${numeric[i] ? "text-right" : ""}`}>
-                  {c.replaceAll("_", " ")}
+                  {columnLabel(c)}
                 </th>
               ))}
             </tr>
@@ -30,7 +32,7 @@ export function ResultTable({ columns, rows, truncated }: Props) {
                 {row.map((cell, j) => (
                   <td
                     key={j}
-                    className={`px-3 py-2 ${typeof cell === "number" ? "text-right font-mono text-xs tabular-nums" : ""}`}
+                    className={`px-3 py-2 ${numeric[j] ? "text-right font-mono text-xs tabular-nums" : ""}`}
                   >
                     {formatCell(cell)}
                   </td>

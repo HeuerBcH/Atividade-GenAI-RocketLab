@@ -13,7 +13,6 @@ from typing import Literal
 
 from groq import AsyncGroq
 from openai import AsyncOpenAI
-from pydantic import ValidationError
 from pydantic_ai import (
     Agent,
     ModelRetry,
@@ -261,16 +260,18 @@ def _validate_answer(ctx: RunContext[AgentDeps], output: AgentOutput | str) -> A
                 "usando apenas números que aparecem nele."
             )
 
-    if isinstance(output, str) and len(output.strip()) < MIN_ANSWER_CHARS:
+    parsed = _parse_text_answer(output) if isinstance(output, str) else output
+    if len(parsed.answer.strip()) < MIN_ANSWER_CHARS:
         raise ModelRetry("Responda ao usuário com o resultado da consulta, em 2 a 5 frases.")
-    answer = output if isinstance(output, str) else output.answer
-    if _looks_like_reasoning(answer):
+    if parsed.answer.startswith("{"):
+        raise ModelRetry("Envie a resposta ao usuário como texto simples, sem JSON.")
+    if _looks_like_reasoning(parsed.answer):
         raise ModelRetry(
             "Isso é o seu raciocínio interno, não a resposta. Escreva a resposta final ao usuário, "
             "em português, com os dados do resultado."
         )
     evidence = _evidence(messages)
-    text = output if isinstance(output, str) else " ".join([output.answer, *output.assumptions])
+    text = " ".join([parsed.answer, *parsed.assumptions])
     numbers = ungrounded_numbers(text, evidence)
     names = ungrounded_names(text, evidence, allowed_terms=_ALLOWED_TERMS)
     if numbers or names:
@@ -334,15 +335,63 @@ def extract_trace(messages: list[ModelMessage]) -> list[TraceStep]:
     return steps
 
 
-def _parse_text_answer(text: str) -> AgentOutput:
-    # às vezes o modelo escreve o JSON do formato estruturado como texto
-    cleaned = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-    if cleaned.startswith("{"):
+_TOOL_CALL_TEXT = re.compile(r'^\{\s*"name"\s*:\s*"[\w-]+"\s*,\s*"arguments"\s*:\s*(.*)\}$', re.S)
+
+
+def _plain(text: str) -> AgentOutput:
+    # sem validar o tamanho aqui: quem decide se a resposta é curta demais é o validador
+    return AgentOutput.model_construct(answer=text, assumptions=[])
+
+
+def _from_json(value: object) -> AgentOutput | None:
+    if isinstance(value, dict):
+        if "arguments" in value:  # {"name": "final_result", "arguments": {...}}
+            return _from_json(value["arguments"])
+        answer, assumptions = value.get("answer"), value.get("assumptions") or []
+        if not isinstance(answer, str):
+            return None
+        return AgentOutput.model_construct(answer=answer, assumptions=[str(a) for a in assumptions])
+    if isinstance(value, str):
         try:
-            return AgentOutput.model_validate_json(cleaned)
-        except ValidationError:
-            pass
-    return AgentOutput(answer=text.strip())
+            return _from_json(json.loads(value))
+        except json.JSONDecodeError:
+            text = value.strip().strip('"').strip()
+            return _plain(text) if text else None
+    return None
+
+
+_ANSWER_LABEL = re.compile(r"^[*_#\s]*(?:answer|resposta)[*_\s]*:[*_\s]*", re.I)
+_ASSUMPTIONS_LABEL = re.compile(r"^[*_#\s]*(?:assumptions|premissas)[*_\s]*:[*_\s]*", re.I | re.M)
+
+
+def _split_labels(text: str) -> AgentOutput:
+    # o formato estruturado escrito em markdown: "**answer**: ...", "**Assumptions:** - ..."
+    answer, assumptions = text, []
+    if header := _ASSUMPTIONS_LABEL.search(text):
+        answer = text[: header.start()]
+        assumptions = [
+            line.strip().lstrip("-*•").strip()
+            for line in text[header.end() :].splitlines()
+            if line.strip().lstrip("-*•").strip()
+        ]
+    answer = _ANSWER_LABEL.sub("", answer.strip()).strip()
+    return AgentOutput.model_construct(answer=answer, assumptions=assumptions)
+
+
+def _parse_text_answer(text: str) -> AgentOutput:
+    # às vezes o gpt-oss escreve como texto o JSON da resposta estruturada, ou até a
+    # chamada de ferramenta inteira, nem sempre como JSON válido
+    cleaned = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    if not cleaned.startswith("{"):
+        return _split_labels(cleaned)
+    try:
+        parsed = _from_json(json.loads(cleaned))
+    except json.JSONDecodeError:
+        parsed = None
+    if parsed is None and (match := _TOOL_CALL_TEXT.match(cleaned)):
+        inner = match.group(1).strip()
+        parsed = _from_json(inner) or _plain(inner.strip('"').strip())
+    return parsed or _plain(cleaned)
 
 
 def _friendly(exc: Exception) -> str:

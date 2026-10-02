@@ -6,7 +6,6 @@ from collections import Counter
 import pytest
 from pydantic import ValidationError
 
-from cinedata_agent import semantic_layer
 from cinedata_agent.config import get_settings
 from cinedata_agent.db import run_query
 from cinedata_agent.evaluation import Table, compare
@@ -54,16 +53,12 @@ def test_rejects_malformed_cases() -> None:
         GoldenSet.model_validate({"version": 1, "cases": [base, base]})
 
 
-def test_reference_sql_uses_the_documented_thresholds() -> None:
-    expected = {
-        "qtd_imdb": semantic_layer.MIN_RATING_VOTES,
-        "qtd_tmdb": semantic_layer.MIN_RATING_VOTES,
-        "qtd_avaliacoes_usuarios": semantic_layer.MIN_USER_REVIEWS,
-    }
+def test_reference_sql_does_not_filter_by_vote_count() -> None:
+    # a Gold é usada como está: nenhum mínimo de votos que a pergunta não peça
     for case in SQL_CASES:
-        for column, value in re.findall(r"(\w+)\s*>=\s*(\d+)", case.sql):
-            if column in expected:
-                assert int(value) == expected[column], f"{case.id}: {column} >= {value}"
+        assert not re.search(r"\b(qtd_imdb|qtd_tmdb|qtd_avaliacoes_usuarios)\s*[<>]", case.sql), (
+            case.id
+        )
 
 
 @pytest.mark.db
