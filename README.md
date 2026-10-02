@@ -17,13 +17,10 @@ tabela, SQL e os passos do raciocínio.</sub>
 3. [Modelo de linguagem: Groq em vez do OpenRouter](#3-modelo-de-linguagem-groq-em-vez-do-openrouter)
 4. [Como executar](#4-como-executar)
 5. [Exemplos reais](#5-exemplos-reais)
-6. [Conceitos da aula aplicados](#6-conceitos-da-aula-aplicados)
-7. [Segurança e guardrails](#7-segurança-e-guardrails)
-8. [Dados: a camada Gold usada como está](#8-dados-a-camada-gold-usada-como-está)
-9. [Avaliação](#9-avaliação)
-10. [Testes e qualidade de código](#10-testes-e-qualidade-de-código)
-11. [Estrutura do projeto](#11-estrutura-do-projeto)
-12. [Decisões técnicas e limitações](#12-decisões-técnicas-e-limitações)
+6. [Segurança e guardrails](#6-segurança-e-guardrails)
+7. [Avaliação](#7-avaliação)
+8. [Testes e qualidade de código](#8-testes-e-qualidade-de-código)
+9. [Estrutura do projeto](#9-estrutura-do-projeto)
 
 ---
 
@@ -37,19 +34,19 @@ tabela, SQL e os passos do raciocínio.</sub>
 | Entregável | **Módulo de backend FastAPI** + linha de comando, sobre o mesmo pacote `cinedata_agent` |
 | Consultas de leitura sobre a Gold, em tempo real | SQL gerada pelo agente e executada no SQLite a cada pergunta, com o arquivo aberto em modo somente leitura |
 | GitHub + README com passo a passo | Este documento ([seção 4](#4-como-executar)) |
-| As 5 categorias de perguntas | As **14 perguntas de exemplo** do enunciado estão no conjunto de avaliação, com SQL de referência ([seção 9](#9-avaliação)) |
+| As 5 categorias de perguntas | As **14 perguntas de exemplo** do enunciado estão no conjunto de avaliação, com SQL de referência ([seção 7](#7-avaliação)) |
 
 **Funcionalidades opcionais sugeridas pelo enunciado:**
 
 | Sugestão | Implementação |
 |---|---|
-| Guardrails | 3 camadas na execução da SQL, recusa de assuntos fora do escopo, defesa contra *prompt injection* e verificação anti-alucinação ([seção 7](#7-segurança-e-guardrails)) |
+| Guardrails | 3 camadas na execução da SQL, recusa de assuntos fora do escopo, defesa contra *prompt injection* e verificação anti-alucinação ([seção 6](#6-segurança-e-guardrails)) |
 | Interface visual | Chat em React com histórico de conversas, tema claro/escuro e versão para celular |
 | Gráficos | Gráfico automático: barras para rankings, área para séries por ano |
 | Memória de conversa | Por sessão, guarda os últimos 6 turnos: "e só os de 2020?" herda o contexto da pergunta anterior |
 | Fallback entre modelos gratuitos | `FallbackModel` com cadeia configurável; no OpenRouter, 4 modelos `:free` em sequência |
 | Cache de respostas | Válido por 1 h; a chave inclui a versão do prompt, então mudou o prompt, o cache antigo não vale |
-| Avaliação (perguntas com respostas esperadas) | 23 casos com SQL de referência, comparados pelo **resultado** da consulta ([seção 9](#9-avaliação)) |
+| Avaliação (perguntas com respostas esperadas) | 23 casos com SQL de referência, comparados pelo **resultado** da consulta ([seção 7](#7-avaliação)) |
 | Agente híbrido: SQL + busca semântica nas sinopses | Ferramenta `buscar_por_sinopse` com embeddings locais; o agente acha filmes pelo tema e cruza com as métricas via SQL ([D13](docs/decisoes.md#d13--agente-híbrido-sql--busca-semântica-nas-sinopses)) |
 | Conexão com a própria Gold no Databricks | Não implementada: usei o `cinerocket.db` fornecido |
 
@@ -209,7 +206,7 @@ O banco e o índice entram como volume **somente leitura** (`./data`). Basta ter
 | `LLM_PROVIDER` | `groq` | `groq` ou `openrouter` |
 | `GROQ_API_KEY` / `OPENROUTER_API_KEY` | — | Chave do provedor escolhido |
 | `MODEL_NAME` | do provedor | Modelo, ou cadeia de fallback separada por vírgulas |
-| `TEMPERATURE` | `0` | Temperatura de geração ([seção 6](#6-conceitos-da-aula-aplicados)) |
+| `TEMPERATURE` | `0` | Temperatura de geração; `0` deixa a geração da SQL determinística |
 | `REASONING_EFFORT` | `none` | Nível de raciocínio: `none`, `low`, `medium` ou `high` |
 | `MAX_REQUESTS_PER_QUESTION` | `10` | Teto de chamadas ao LLM por pergunta, para proteger a cota |
 | `QUERY_TIMEOUT_SECONDS` / `MAX_ROWS` | `30` / `1000` | Limites de cada consulta SQL |
@@ -234,22 +231,7 @@ completas, com a SQL de cada uma, estão em [eval/report.md](eval/report.md).
 
 ---
 
-## 6. Conceitos da aula aplicados
-
-| Conceito | Como aparece no projeto |
-|---|---|
-| **Temperatura e top-p** | `temperature=0`: a mesma pergunta deve gerar a mesma SQL, e criatividade aqui é defeito. O top-p fica no padrão, porque ajustamos só um dos dois, como visto em aula. Configurável por `TEMPERATURE`. |
-| **System prompt como diretiva mestre** | [prompts/system_prompt.md](src/cinedata_agent/prompts/system_prompt.md), versionado e organizado em **Persona → Objetivo → Ferramentas → Como trabalhar (ReAct) → Regras → Camada semântica → Formato**. O hash da versão aparece em `/health` e entra na chave do cache. |
-| **Nível de raciocínio configurável** | `REASONING_EFFORT=none\|low\|medium\|high`, enviado ao Groq (`reasoning_effort`) ou ao OpenRouter (`reasoning.effort`). O padrão `none` economiza tokens, que são o recurso mais escasso. |
-| **Agente = Persona + Planejamento + Ferramentas + Memória** | **Persona:** "CineData Analyst", analista sênior que explica números para leigos. **Planejamento:** o passo "Pensar" do ReAct (métrica, filtros, agrupamento, entidades). **Ferramentas:** `buscar_valores`, `buscar_por_sinopse` e `executar_sql`. **Memória:** histórico por sessão, com os últimos 6 turnos. |
-| **ReAct (pensar → agir → observar)** | O ciclo está explícito no prompt e é **exposto ao usuário**: `--trace` na CLI, aba "Raciocínio" no chat e campo `steps` na API. Um validador **rejeita a resposta final enviada junto com uma chamada de ferramenta**, obrigando o modelo a observar o resultado antes de responder ([D8](docs/decisoes.md#d8--garantia-estrutural-do-ciclo-react-anti-alucinação)). |
-| **Armadilha: consumo de tokens** | Teto de chamadas por pergunta; o LLM vê só uma amostra de 10 linhas e células cortadas em 120 caracteres; a camada semântica entra no prompt em versão enxuta; a busca nas sinopses devolve trechos de 100 caracteres. |
-| **Armadilha: mais de 5 ferramentas piora o agente** | **3 ferramentas, cada uma com um papel distinto.** Papéis (ator, diretor), gêneros e filtros são resolvidos na própria SQL, em vez de uma ferramenta para cada entidade. |
-| **Armadilha: saída intermediária ruim confunde o agente** | Erros do SQLite voltam ao modelo com a causa e uma orientação de correção. Consulta vazia gera aviso para revisar os filtros. Resposta com número ou nome que não está nos dados é devolvida para correção ([D10](docs/decisoes.md#d10--tolerância-zero-a-alucinação-verificação-de-fundamentação)). |
-
----
-
-## 7. Segurança e guardrails
+## 6. Segurança e guardrails
 
 A SQL é escrita por um LLM, portanto é **entrada não confiável**. A execução tem três camadas
 independentes ([D7](docs/decisoes.md#d7--segurança-da-execução-de-sql-em-três-camadas)):
@@ -280,30 +262,7 @@ não em esconder a consulta. O schema exposto é o mesmo da atividade, que já �
 
 ---
 
-## 8. Dados: a camada Gold usada como está
-
-A Gold já chega tratada da etapa de Engenharia de Dados, então o agente **não exclui, corrige,
-deduplica nem classifica registros como erro**, e não aplica filtros que a pergunta não peça
-([D5](docs/decisoes.md#d5--convenções-de-negócio-derivadas-do-profiling-dos-dados)). As convenções
-abaixo só definem o significado de termos que a pergunta deixa em aberto. **Um critério explícito
-na pergunta sempre prevalece**; por exemplo, "com pelo menos 100 votos".
-
-| Termo | Convenção | Motivo |
-|---|---|---|
-| Receita, faturamento, bilheteria | Sinônimos; moeda padrão R$ (`*_brl`), sem conversão manual | O câmbio é histórico e varia por filme |
-| Lucro | Só filmes com receita **e** orçamento informados; só com receita quando a pergunta disser "receita informada" | Na Gold, sem orçamento, o lucro gravado é igual à receita |
-| Margem de lucro | `lucro / receita`, com receita e orçamento > 0 | Critério do enunciado |
-| Divergência entre notas | `ABS(nota_a − nota_b)`, com as duas notas preenchidas | — |
-| Gêneros | Traduzidos do português para o valor do banco (Ação → `Action`) | `dim_genres` está em inglês |
-| "Últimos N anos" | Janela móvel até a data de hoje | — |
-
-O [dicionário de dados](docs/dicionario_dados.md) é gerado a partir da mesma camada semântica que
-alimenta o prompt ([semantic_layer.py](src/cinedata_agent/semantic_layer.py)), então documentação e
-comportamento não divergem.
-
----
-
-## 9. Avaliação
+## 7. Avaliação
 
 O [eval/golden.yaml](eval/golden.yaml) tem **23 casos**, cada um com uma SQL de referência
 escrita à mão:
@@ -344,7 +303,7 @@ execuções de 01 e 02/10/2026):
 
 > **Um erro encontrado pela avaliação (POP-02, divergência TMDB × IMDb):** numa rodada o agente
 > acrescentou por conta própria o filtro `qtd_tmdb > 0`, descartando filmes com nota 0 e nenhum
-> voto no TMDB. Como a Gold é usada sem tratamento ([seção 8](#8-dados-a-camada-gold-usada-como-está)),
+> voto no TMDB. Como a Gold é usada sem tratamento ([D5](docs/decisoes.md#d5--convenções-de-negócio-derivadas-do-profiling-dos-dados)),
 > isso foi contado como falha. A camada semântica ganhou uma regra explícita (nota 0 é um valor
 > informado; não se filtra por quantidade de votos sem pedido), e o caso passou na rodada seguinte.
 
@@ -353,7 +312,7 @@ Isso garante que o gabarito roda, não expõe chaves internas e não tem empate 
 
 ---
 
-## 10. Testes e qualidade de código
+## 8. Testes e qualidade de código
 
 ```bash
 pytest                   # 65 testes, offline: o LLM é simulado e nenhuma cota é gasta
@@ -370,7 +329,7 @@ cd frontend && npm test && npm run typecheck    # testes do frontend (Vitest) e 
 
 ---
 
-## 11. Estrutura do projeto
+## 9. Estrutura do projeto
 
 ```
 src/cinedata_agent/          pacote principal
@@ -403,28 +362,3 @@ docs/
   dicionario_dados.md        dicionário de dados (gerado)
 data/                        banco, índice e modelo de embeddings (fora do git)
 ```
-
----
-
-## 12. Decisões técnicas e limitações
-
-Cada escolha relevante está registrada em [docs/decisoes.md](docs/decisoes.md), com o contexto, a
-alternativa descartada e a medição que a justificou. Por exemplo: por que o banco não é
-indexado (D11), como a cota foi tratada como recurso planejado (D3), por que o Groq (D9) e como
-o índice de sinopses ficou 3,5× mais rápido de gerar (D13).
-
-**Limitações conhecidas:**
-
-- **Cota gratuita:** cerca de 12 a 14 perguntas por dia no Groq. Respostas levam de 20 a 70 s, porque
-  o limite de tokens por minuto obriga a esperar entre as chamadas.
-- **Memória e cache ficam na memória da API** e se perdem quando ela reinicia. O histórico de
-  conversas do chat fica no navegador.
-- **Busca nas sinopses:** as sinopses estão em inglês, e o próprio agente traduz o tema da
-  pergunta. A similaridade é relativa: o agente confere os trechos para descartar resultados
-  fora do tema.
-- **Anti-alucinação:** nomes de uma única palavra ("Avatar") não são conferidos por texto livre;
-  o número associado a eles, sim.
-
-> **Histórico do repositório:** uma primeira interface foi feita em Streamlit (commit `e7d917c`) e
-> depois substituída pelo chat em React, que tem histórico de conversas, gráficos e tema
-> claro/escuro.
