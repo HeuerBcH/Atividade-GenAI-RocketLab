@@ -37,7 +37,7 @@ Métricas financeiras e de popularidade; exatamente 1 linha por filme.
 | `receita_brl` | Receita/bilheteria em R$. Informada em só ~3,4 mil filmes. |
 | `lucro_brl` | Lucro em R$ (ver regras de lucro: nunca é NULL). |
 | `popularidade` | Índice de popularidade do TMDB (quanto maior, mais popular). |
-| `nota_tmdb` | Nota média no TMDB (0 a 10). Vale 0 quando qtd_tmdb = 0. |
+| `nota_tmdb` | Nota média no TMDB (0 a 10). |
 | `qtd_tmdb` | Quantidade de votos no TMDB. |
 | `nota_imdb` | Nota média no IMDb (0 a 10). NULL quando não há votos. |
 | `qtd_imdb` | Quantidade de votos no IMDb. |
@@ -143,7 +143,7 @@ Filme N:N produtora.
 8. Margem de lucro = lucro_brl / receita_brl, só entre filmes com receita_brl > 0 e orcamento_brl > 0.
 9. Margem média = AVG(lucro_brl / receita_brl), a média das margens de cada filme.
 10. 'Nota' sem especificação = nota_imdb. 'Mais popular' = maior popularidade.
-11. Divergência entre notas = ABS(nota_a - nota_b), com as duas notas não nulas.
+11. Divergência entre notas = ABS(nota_a - nota_b), com as duas notas não nulas. Nota 0 é um valor informado: não a exclua e não filtre por qtd_tmdb, qtd_imdb ou qtd_avaliacoes_usuarios, salvo pedido explícito (ex.: 'com pelo menos 100 votos').
 12. Médias de notas usam todos os filmes com nota não nula.
 13. 'Mais avaliados pelos usuários' = maior qtd_avaliacoes_usuarios (há muitos empates).
 14. 'Últimos N anos' = data_lancamento entre date('now', '-N years') e date('now').

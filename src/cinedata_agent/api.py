@@ -45,6 +45,11 @@ EXAMPLES: dict[str, list[str]] = {
         "Quais filmes foram mais avaliados pelos usuários?",
         "Em quais filmes a nota média dos usuários mais diverge da nota IMDb?",
     ],
+    # agente híbrido: busca semântica nas sinopses + SQL (docs/decisoes.md, D13)
+    "Busca por tema (sinopses)": [
+        "Quais filmes falam sobre viagem no tempo?",
+        "Qual a receita total dos filmes sobre assalto a banco?",
+    ],
 }
 
 

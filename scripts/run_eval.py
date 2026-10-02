@@ -7,7 +7,7 @@ Uso:
     python scripts/run_eval.py                      # todos os casos
     python scripts/run_eval.py --source enunciado   # só as 14 perguntas do enunciado
     python scripts/run_eval.py --ids BIL-01,ELE-03
-    python scripts/run_eval.py --resume             # pula os casos que já passaram
+    python scripts/run_eval.py --resume             # pula os que já passaram no gabarito atual
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ from datetime import datetime
 
 from cinedata_agent.agent import build_agent, build_model
 from cinedata_agent.config import PROJECT_ROOT, get_settings
-from cinedata_agent.evaluation import CaseResult, build_report, run_case
+from cinedata_agent.evaluation import CaseResult, build_report, is_current, run_case
 from cinedata_agent.golden import load_golden
 
 RESULTS = PROJECT_ROOT / "eval" / "results" / "latest.json"
@@ -64,19 +64,22 @@ async def main() -> int:
 
     stopped = False
     for i, case in enumerate(selected):
-        if args.resume and case.id in results and results[case.id].passed:
+        previous = results.get(case.id)
+        if args.resume and previous and previous.passed and is_current(previous, case):
             continue
         if i and args.pause:
             await asyncio.sleep(args.pause)  # respeita o limite de tokens por minuto
         result = await run_case(agent, case, settings, label)
+        if result.error and any(h in (result.detail or "") for h in DAILY_LIMIT_HINTS):
+            # cota esgotada não diz nada sobre o agente: mantém o resultado anterior do caso
+            print(f"[COTA ] {case.id} | não avaliado: cota diária do provedor esgotada")
+            print("\nRode de novo com --resume quando a cota renovar.")
+            stopped = True
+            break
         results[case.id] = result
         _save(results)
         status = "OK   " if result.passed else "FALHA"
         print(f"[{status}] {case.id} | {result.requests} req | {result.error or result.detail}")
-        if result.error and any(h in (result.detail or "") for h in DAILY_LIMIT_HINTS):
-            print("\nCota diária do provedor esgotada. Rode de novo com --resume mais tarde.")
-            stopped = True
-            break
 
     ordered = [results[c.id] for c in cases if c.id in results]
     REPORT.write_text(

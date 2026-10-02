@@ -48,6 +48,7 @@ from .guardrails import GuardrailError
 from .models import AgentOutput, AskResponse, TraceStep, Usage
 from .prompt import build_instructions
 from .semantic_layer import GENRE_TRANSLATIONS, SEARCHABLE_FIELDS, render_markdown
+from .synopsis import IndexUnavailable, get_index
 
 PREVIEW_ROWS = 10
 MIN_ANSWER_CHARS = 20
@@ -56,10 +57,13 @@ MAX_CELL_CHARS = 120
 SEARCH_LIMIT = 15
 MAX_TRACE_CHARS = 1500
 PARSE_RETRIES = 1
+SYNOPSIS_LIMIT = 10
+SYNOPSIS_MAX = 30
+MAX_EXCERPT_CHARS = 100
 _PARSE_ERRORS = ("output_parse_failed", "tool_use_failed")
 
 SearchField = Literal["filme", "pessoa", "produtora", "genero", "status"]
-TOOL_NAMES = frozenset({"executar_sql", "buscar_valores"})
+TOOL_NAMES = frozenset({"executar_sql", "buscar_valores", "buscar_por_sinopse"})
 
 _ALLOWED_TERMS = (*GENRE_TRANSLATIONS, *GENRE_TRANSLATIONS.values(), "CineData Analyst")
 
@@ -80,6 +84,8 @@ class AgentDeps:
     db_path: Path
     max_rows: int
     timeout_seconds: float
+    synopsis_index_path: Path | None = None
+    embedding_cache_dir: Path | None = None
     results: list[QueryResult] = field(default_factory=list)
 
     @classmethod
@@ -88,6 +94,8 @@ class AgentDeps:
             db_path=settings.db_path,
             max_rows=settings.max_rows,
             timeout_seconds=settings.query_timeout_seconds,
+            synopsis_index_path=settings.synopsis_index_path,
+            embedding_cache_dir=settings.embedding_cache_dir,
         )
 
 
@@ -157,6 +165,79 @@ def buscar_valores(ctx: RunContext[AgentDeps], campo: SearchField, termo: str) -
     if not result.rows:
         return {"valores": [], "aviso": f"Nenhum {campo} contém '{termo}'. Tente outro trecho."}
     return {"colunas": result.columns, "valores": result.rows}
+
+
+def buscar_por_sinopse(
+    ctx: RunContext[AgentDeps], descricao: str, quantidade: int = SYNOPSIS_LIMIT
+) -> dict[str, object]:
+    """Encontra filmes pelo TEMA ou ENREDO, comparando o significado da descrição com as sinopses.
+
+    Use só quando a pergunta falar do assunto do filme (ex.: "filmes sobre viagem no tempo").
+    Devolve os filmes mais parecidos, com id_filme. Para métricas desses filmes, chame
+    executar_sql com WHERE id_filme IN (...).
+
+    Args:
+        descricao: O tema em INGLÊS, pois as sinopses estão em inglês (ex.: 'time travel').
+        quantidade: Quantos filmes devolver (1 a 30).
+    """
+    deps = ctx.deps
+    if deps.synopsis_index_path is None or deps.embedding_cache_dir is None:
+        return {"filmes": [], "aviso": "Busca por sinopse indisponível nesta configuração."}
+    try:
+        index = get_index(deps.synopsis_index_path, deps.embedding_cache_dir)
+    except IndexUnavailable as exc:
+        return {"filmes": [], "aviso": f"{exc} Avise o usuário e responda sem essa busca."}
+
+    start = time.perf_counter()
+    matches = index.search(descricao, max(1, min(quantidade, SYNOPSIS_MAX)))
+    # os ids vêm do índice, nunca do LLM, e mesmo assim vão como parâmetros
+    placeholders = ", ".join("?" * len(matches))
+    sql = (
+        "SELECT id_filme, titulo, ano_lancamento, sinopse FROM dim_movies "
+        f"WHERE id_filme IN ({placeholders})"
+    )
+    found = run_query(
+        sql,
+        db_path=deps.db_path,
+        max_rows=len(matches),
+        timeout_seconds=deps.timeout_seconds,
+        params=[m.id_filme for m in matches],
+    )
+    details = {row[0]: row for row in found.rows}
+    movies = [(m, details[m.id_filme]) for m in matches if m.id_filme in details]
+
+    # a tabela exibida ao usuário, caso nenhuma SQL venha depois
+    ids_sql = ", ".join(f"'{m.id_filme}'" for m, _ in movies)
+    deps.results.append(
+        QueryResult(
+            sql=f"-- busca semântica nas sinopses: {descricao!r}\n"
+            "SELECT id_filme, titulo, ano_lancamento, sinopse FROM dim_movies\n"
+            f"WHERE id_filme IN ({ids_sql})",
+            columns=["titulo", "ano_lancamento", "similaridade", "sinopse"],
+            rows=[[row[1], row[2], m.similarity, row[3]] for m, row in movies],
+            truncated=False,
+            elapsed_ms=round((time.perf_counter() - start) * 1000, 1),
+        )
+    )
+    return {
+        "filmes": [
+            {
+                "id_filme": m.id_filme,
+                "titulo": row[1],
+                "ano": row[2],
+                "similaridade": m.similarity,
+                "trecho": _clip_excerpt(row[3]),
+            }
+            for m, row in movies
+        ],
+        "dica": "A similaridade é relativa: compare os filmes entre si e confira o trecho para "
+        "descartar os que fogem do tema. Para métricas, use executar_sql com "
+        "WHERE id_filme IN (...) desses filmes.",
+    }
+
+
+def _clip_excerpt(text: str) -> str:
+    return text if len(text) <= MAX_EXCERPT_CHARS else text[:MAX_EXCERPT_CHARS] + "..."
 
 
 def _groq_models(settings: Settings, api_key: str) -> list[Model]:
@@ -293,7 +374,11 @@ def build_agent(model: Model) -> Agent[AgentDeps, AgentOutput | str]:
         # com saída só estruturada o Groq exige ferramenta em toda rodada (tool_use_failed)
         output_type=[AgentOutput, str],
         instructions=_instructions,
-        tools=[Tool(buscar_valores, max_retries=2), Tool(executar_sql, max_retries=2)],
+        tools=[
+            Tool(buscar_valores, max_retries=2),
+            Tool(buscar_por_sinopse, max_retries=2),
+            Tool(executar_sql, max_retries=2),
+        ],
         retries=5,
     )
     agent.output_validator(_validate_answer)
@@ -306,6 +391,12 @@ def _short(text: str) -> str:
 
 def _observation(content: object) -> str:
     if isinstance(content, dict):
+        if "filmes" in content:
+            movies = content["filmes"]
+            names = ", ".join(f"{f['titulo']} ({f['ano']}, {f['similaridade']})" for f in movies)
+            return _short(
+                f"{len(movies)} filme(s) por sinopse: {names}" if movies else str(content)
+            )
         if "total_linhas" in content:
             avisos = " ".join(content.get("avisos") or [])
             return _short(

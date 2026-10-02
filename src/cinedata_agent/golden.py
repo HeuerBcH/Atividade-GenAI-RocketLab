@@ -1,7 +1,8 @@
 """Golden set (eval/golden.yaml): perguntas com SQL de referência.
 
 Modos de comparação: ordered (chaves na mesma ordem), set (mesmo conjunto), values (top N da
-métrica, tolera empates), mapping (chave -> métrica), scalar (um valor) e refusal (sem SQL).
+métrica, tolera empates), mapping (chave -> métrica), scalar (um valor), refusal (sem SQL) e
+semantic (agente híbrido: usou a busca nas sinopses e os filmes devolvidos são do tema `query`).
 """
 
 from __future__ import annotations
@@ -23,11 +24,13 @@ Category = Literal[
     "generos_produtoras",
     "avaliacoes_usuarios",
     "robustez",
+    "busca_semantica",
 ]
-Mode = Literal["ordered", "set", "values", "mapping", "scalar", "refusal"]
+Mode = Literal["ordered", "set", "values", "mapping", "scalar", "refusal", "semantic"]
 
 _NEEDS_KEY: frozenset[str] = frozenset({"ordered", "set", "mapping"})
 _NEEDS_METRIC: frozenset[str] = frozenset({"ordered", "values", "mapping", "scalar"})
+WITHOUT_SQL: frozenset[str] = frozenset({"refusal", "semantic"})
 
 
 class Check(BaseModel):
@@ -36,6 +39,7 @@ class Check(BaseModel):
     metric: str | None = None
     top_n: int | None = Field(default=None, ge=1)
     rel_tol: float = Field(default=0.01, ge=0)
+    query: str | None = Field(default=None, description="Tema de referência (modo semantic).")
 
     @model_validator(mode="after")
     def _fields_match_mode(self) -> Self:
@@ -43,6 +47,8 @@ class Check(BaseModel):
             raise ValueError(f"modo '{self.mode}' exige 'key'")
         if self.mode in _NEEDS_METRIC and not self.metric:
             raise ValueError(f"modo '{self.mode}' exige 'metric'")
+        if self.mode == "semantic" and not self.query:
+            raise ValueError("modo 'semantic' exige 'query'")
         return self
 
 
@@ -58,10 +64,10 @@ class GoldenCase(BaseModel):
 
     @model_validator(mode="after")
     def _sql_matches_mode(self) -> Self:
-        is_refusal = self.check.mode == "refusal"
-        if is_refusal and self.sql:
-            raise ValueError(f"{self.id}: casos de recusa não têm SQL de referência")
-        if not is_refusal and not self.sql:
+        without_sql = self.check.mode in WITHOUT_SQL
+        if without_sql and self.sql:
+            raise ValueError(f"{self.id}: o modo '{self.check.mode}' não tem SQL de referência")
+        if not without_sql and not self.sql:
             raise ValueError(f"{self.id}: SQL de referência obrigatória")
         return self
 

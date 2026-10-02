@@ -3,6 +3,7 @@
 # - 14 casos "enunciado": as perguntas de exemplo da atividade, nas 5 categorias.
 # - 8 casos "extra": robustez (tradução de gênero, nome de pessoa, follow-up, pergunta
 #   ambígua, fora de escopo, comando destrutivo e prompt injection).
+# - 1 caso "extra" do agente híbrido (busca semântica nas sinopses + SQL).
 #
 # As SQLs de referência seguem as regras de negócio de src/cinedata_agent/semantic_layer.py.
 # Modos de comparação: ver src/cinedata_agent/golden.py.
@@ -333,3 +334,13 @@ cases:
     check: {mode: refusal}
     assumptions:
       - Prompt injection; não revelar instruções internas.
+
+  # ------------------------------------------------------ Busca por tema (agente híbrido)
+  - id: SEM-01
+    category: busca_semantica
+    source: extra
+    question: Quais filmes falam sobre viagem no tempo e qual a nota IMDb de cada um?
+    check: {mode: semantic, query: time travel}
+    assumptions:
+      - O tema não existe como coluna; o agente precisa achar os filmes pela sinopse e cruzar com a nota via SQL.
+      - Passa se usou buscar_por_sinopse e se ao menos metade dos filmes devolvidos está entre os 100 mais parecidos com "time travel".

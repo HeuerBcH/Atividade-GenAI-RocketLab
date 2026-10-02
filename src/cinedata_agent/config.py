@@ -74,6 +74,14 @@ class Settings(BaseSettings):
     )
     max_rows: int = Field(default=1000, ge=1, description="Teto de linhas devolvidas por consulta.")
 
+    synopsis_index_path: Path = Field(
+        default=Path("data/synopsis_index.npz"),
+        description="Índice de embeddings das sinopses (scripts/build_synopsis_index.py).",
+    )
+    embedding_cache_dir: Path = Field(
+        default=Path("data/models"), description="Onde o modelo de embeddings é baixado."
+    )
+
     cors_origins: Annotated[list[str], NoDecode] = Field(
         default=["http://localhost:5173", "http://127.0.0.1:5173"],
         description="Origens liberadas para o frontend (separadas por vírgula).",
@@ -87,7 +95,7 @@ class Settings(BaseSettings):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
 
-    @field_validator("db_path")
+    @field_validator("db_path", "synopsis_index_path", "embedding_cache_dir")
     @classmethod
     def _resolve_relative_to_root(cls, value: Path) -> Path:
         return value if value.is_absolute() else PROJECT_ROOT / value

@@ -60,7 +60,7 @@ export function Sidebar({ open, conversations, currentId, onClose, onPick, onDel
             </div>
             <div className="leading-tight">
               <p className="text-sm font-semibold">CineData Analyst</p>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">Catálogo de filmes · camada Gold</p>
+              <p className="text-[11px] text-slate-400">Análise de dados de filmes</p>
             </div>
           </div>
           <button

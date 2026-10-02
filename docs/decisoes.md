@@ -202,8 +202,45 @@ Observado com a resposta HTTP bruta (2026-10-01):
   também como texto (`output_type=[AgentOutput, str]`). O texto passa pela mesma verificação de
   fundamentação (D10), e um JSON escrito como texto é convertido no formato estruturado.
 - Às vezes o modelo escreve a resposta no canal de raciocínio e encerra com `content=''`. Ele se
-  recupera na rodada seguinte, mas isso consome chamadas. **Decisão:** teto de 8 chamadas por
+  recupera na rodada seguinte, mas isso consome chamadas. **Decisão:** teto de 10 chamadas por
   pergunta (era 5).
 - Limites do plano gratuito por modelo: 1.000 requisições/dia, **8 mil tokens/minuto** e **200 mil
   tokens/dia**. Uma pergunta usa ~3,7 mil tokens por chamada; num 429 o SDK espera o tempo pedido
   pelo Groq e tenta de novo (até 3 vezes).
+
+## D13 — Agente híbrido: SQL + busca semântica nas sinopses
+
+**Contexto.** Perguntas sobre o *tema* de um filme ("filmes sobre viagem no tempo", "receita de
+filmes de assalto a banco") não têm coluna para filtrar: o assunto só existe no texto da
+`sinopse` (82 mil filmes com sinopse, em inglês, ~230 caracteres em média). Um `LIKE '%time%'`
+erra nos dois sentidos: acha "time" em qualquer frase e não acha "travels to the future".
+
+**Decisão.** Uma 3ª ferramenta, `buscar_por_sinopse(descricao, quantidade)`, faz busca por
+significado (embeddings) e devolve os `id_filme` mais parecidos, que o agente usa na SQL
+(`WHERE id_filme IN (...)`). O agente continua com 3 ferramentas, dentro do limite de ≤ 5.
+
+- **Modelo `BAAI/bge-small-en-v1.5` via fastembed (ONNX, roda na CPU).** Sem torch: as
+  dependências novas somam ~55 MB (onnxruntime 46 MB), contra mais de 2 GB do
+  sentence-transformers. O modelo é em inglês, como as sinopses; o próprio LLM traduz o tema ao
+  chamar a ferramenta ("viagem no tempo" → `"time travel"`).
+- **Índice fora do banco**, gerado uma vez por `scripts/build_synopsis_index.py` e salvo em
+  `data/synopsis_index.npz` (vetores normalizados em float16, ~65 MB). O `cinerocket.db` não é
+  alterado (D11). Sem o índice, a API sobe normalmente e a ferramenta só avisa que ele falta.
+- **Busca exata (força bruta):** produto escalar contra os 82 mil vetores, em ~8 ms (os vetores ficam em float32 na memória, ~126 MB; convertê-los a cada busca custava ~50 ms). Um índice
+  aproximado (FAISS, HNSW) só compensaria com milhões de itens e traria mais uma dependência.
+- **Resultado enxuto para o LLM:** 10 filmes por padrão, com título, ano, similaridade e um
+  trecho de 100 caracteres (~400 tokens). O resultado volta em todas as chamadas seguintes da
+  pergunta, então sinopses inteiras custariam cota a cada chamada.
+- Os `id_filme` vêm do índice, não do LLM, e mesmo assim vão para a SQL como parâmetros.
+  Títulos e similaridades devolvidos entram na verificação anti-alucinação (D10).
+
+**Desempenho medido** (2026-10-02, CPU de 20 núcleos): gerar o índice em lotes aleatórios fazia
+43 sinopses/s (~32 min). O gargalo era o *padding*: cada lote é completado até o texto mais
+longo. Ordenar as sinopses por tamanho antes de montar os lotes levou a 153 sinopses/s (~9 min),
+3,5x mais rápido. Paralelismo por processos e mais threads não ajudaram.
+
+**Alternativas descartadas.**
+- *FTS5/BM25:* sem dependências, mas é busca por palavras, não semântica.
+- *Modelo multilíngue:* aceitaria a pergunta em português, mas é ~4x maior e mais lento; a
+  tradução feita pelo LLM resolve o idioma de graça.
+- *`all-MiniLM-L6-v2`:* ~2x mais rápido para indexar, porém com qualidade de recuperação menor.

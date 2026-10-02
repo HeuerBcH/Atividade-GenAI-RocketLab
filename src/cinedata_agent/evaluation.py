@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import re
 from dataclasses import dataclass
+from datetime import datetime
 
 from pydantic import BaseModel, Field
 from pydantic_ai import Agent
@@ -13,9 +16,12 @@ from .agent import AgentDeps, AgentError, ask
 from .config import Settings
 from .db import run_query
 from .golden import GoldenCase
-from .models import AgentOutput
+from .models import AgentOutput, AskResponse
+from .synopsis import IndexUnavailable, get_index
 
 PERCENT_SCALES = (1.0, 100.0)
+SEMANTIC_POOL = 100  # filmes mais parecidos com o tema de referência
+SEMANTIC_MIN_SHARE = 0.5  # fração mínima dos filmes do agente que precisa estar nesse grupo
 
 
 @dataclass(frozen=True)
@@ -75,8 +81,14 @@ def _best_text_column(expected: list[object], table: Table) -> int | None:
     return best_index if best_score else None
 
 
-def _best_numeric_column(expected: list[object], table: Table, rel_tol: float) -> int | None:
-    # procura em qualquer posição; a ordem é conferida depois
+def _best_numeric_column(
+    expected: list[object], table: Table, rel_tol: float, name: str | None = None
+) -> int | None:
+    # coluna com o mesmo nome da métrica tem prioridade: várias colunas numéricas (nota_tmdb,
+    # nota_imdb, divergencia) podem coincidir em alguns valores e confundir a escolha
+    if name in table.columns:
+        return table.columns.index(name)
+    # sem esse nome, procura em qualquer posição; a ordem é conferida depois
     scores = []
     for i in range(len(table.columns)):
         actual = [a for a in table.column_at(i) if _as_float(a) is not None]
@@ -116,7 +128,9 @@ def compare(case: GoldenCase, reference: Table, actual: Table | None) -> Verdict
             ok = not missing and not extra
             return Verdict(ok, "conjunto confere" if ok else f"faltam {missing}; sobram {extra}")
 
-        metric_idx = _best_numeric_column(reference.column(check.metric), actual, check.rel_tol)
+        metric_idx = _best_numeric_column(
+            reference.column(check.metric), actual, check.rel_tol, check.metric
+        )
         if metric_idx is None:
             return Verdict(False, f"métrica '{check.metric}' não encontrada no resultado")
         expected = dict(zip(ref_keys, reference.column(check.metric), strict=True))
@@ -130,7 +144,7 @@ def compare(case: GoldenCase, reference: Table, actual: Table | None) -> Verdict
     expected_values = (
         reference.column(check.metric)[:top] if top else reference.column(check.metric)
     )
-    metric_idx = _best_numeric_column(expected_values, actual, check.rel_tol)
+    metric_idx = _best_numeric_column(expected_values, actual, check.rel_tol, check.metric)
     if metric_idx is None:
         return Verdict(False, f"métrica '{check.metric}' não encontrada no resultado")
     got_values = actual.column_at(metric_idx)
@@ -149,6 +163,38 @@ def compare(case: GoldenCase, reference: Table, actual: Table | None) -> Verdict
     )
 
 
+def compare_semantic(
+    case: GoldenCase, reference_titles: set[str], response: AskResponse
+) -> Verdict:
+    """Agente híbrido: o tema não tem SQL exata, então confere o caminho e a pertinência."""
+    used = any(
+        s.kind == "acao" and s.content.startswith("buscar_por_sinopse(") for s in response.steps
+    )
+    if not used:
+        return Verdict(False, "não usou a busca por sinopse")
+    actual = Table(response.columns, response.rows)
+    column = _best_text_column(list(reference_titles), actual)
+    if column is None:
+        return Verdict(False, f"nenhum filme do tema '{case.check.query}' no resultado")
+    titles = [_norm_text(v) for v in actual.column_at(column)]
+    hits = sum(t in reference_titles for t in titles)
+    ok = hits / len(titles) >= SEMANTIC_MIN_SHARE
+    return Verdict(ok, f"{hits}/{len(titles)} filmes do tema '{case.check.query}'")
+
+
+def semantic_reference(case: GoldenCase, settings: Settings) -> set[str]:
+    index = get_index(settings.synopsis_index_path, settings.embedding_cache_dir)
+    ids = [m.id_filme for m in index.search(case.check.query or "", SEMANTIC_POOL)]
+    result = run_query(
+        f"SELECT titulo FROM dim_movies WHERE id_filme IN ({', '.join('?' * len(ids))})",
+        db_path=settings.db_path,
+        max_rows=len(ids),
+        timeout_seconds=settings.query_timeout_seconds,
+        params=ids,
+    )
+    return {_norm_text(row[0]) for row in result.rows}
+
+
 class CaseResult(BaseModel):
     case_id: str
     category: str
@@ -164,6 +210,18 @@ class CaseResult(BaseModel):
     output_tokens: int = 0
     latency_ms: float = 0.0
     error: str | None = None
+    evaluated_at: str | None = None
+    # hash da pergunta + gabarito: se o golden.yaml mudar, o resultado deixa de valer
+    case_fingerprint: str | None = None
+
+
+def fingerprint(case: GoldenCase) -> str:
+    content = case.model_dump(include={"question", "history", "sql", "check"})
+    return hashlib.sha256(json.dumps(content, sort_keys=True).encode()).hexdigest()[:12]
+
+
+def is_current(result: CaseResult, case: GoldenCase) -> bool:
+    return result.case_fingerprint == fingerprint(case)
 
 
 def reference_table(case: GoldenCase, settings: Settings) -> Table:
@@ -189,6 +247,8 @@ async def run_case(
         "category": case.category,
         "model": model_label,
         "reasoning": settings.reasoning_effort,
+        "evaluated_at": datetime.now().isoformat(timespec="minutes"),
+        "case_fingerprint": fingerprint(case),
     }
     history: list = []
     requests = input_tokens = output_tokens = 0
@@ -211,8 +271,14 @@ async def run_case(
     except AgentError as exc:
         return CaseResult(**base, passed=False, detail=exc.detail, error=str(exc))
 
-    actual = Table(response.columns, response.rows) if response.sql else None
-    verdict = compare(case, reference_table(case, settings), actual)
+    if case.check.mode == "semantic":
+        try:
+            verdict = compare_semantic(case, semantic_reference(case, settings), response)
+        except IndexUnavailable as exc:
+            verdict = Verdict(False, str(exc))
+    else:
+        actual = Table(response.columns, response.rows) if response.sql else None
+        verdict = compare(case, reference_table(case, settings), actual)
     return CaseResult(
         **base,
         passed=verdict.passed,
@@ -234,6 +300,7 @@ CATEGORY_LABELS = {
     "generos_produtoras": "Gêneros e Produtoras",
     "avaliacoes_usuarios": "Avaliações dos Usuários",
     "robustez": "Robustez (extras)",
+    "busca_semantica": "Busca por tema (sinopses)",
 }
 
 
@@ -243,7 +310,9 @@ def _pct(hits: int, total: int) -> str:
 
 def build_report(results: list[CaseResult], cases: list[GoldenCase], generated_at: str) -> str:
     by_id = {c.id: c for c in cases}
-    done = [r for r in results if r.case_id in by_id]
+    known = [r for r in results if r.case_id in by_id]
+    done = [r for r in known if is_current(r, by_id[r.case_id])]
+    stale = [r for r in known if not is_current(r, by_id[r.case_id])]
     hits = sum(r.passed for r in done)
     from_assignment = [r for r in done if by_id[r.case_id].source == "enunciado"]
     answered = [r for r in done if not r.error]
@@ -263,6 +332,8 @@ def build_report(results: list[CaseResult], cases: list[GoldenCase], generated_a
         f"| Perguntas do enunciado | {_pct(assignment_hits, len(from_assignment))} |",
         f"| Casos avaliados / total | {len(done)}/{len(cases)} |",
     ]
+    if dates := sorted(r.evaluated_at[:10] for r in done if r.evaluated_at):
+        lines.append(f"| Período das execuções | {dates[0]} a {dates[-1]} |")
     if answered:
         n = len(answered)
         requests = sum(r.requests for r in answered) / n
@@ -283,6 +354,23 @@ def build_report(results: list[CaseResult], cases: list[GoldenCase], generated_a
         if group:
             lines.append(f"| {label} | {_pct(sum(r.passed for r in group), len(group))} |")
 
+    pending = [c.id for c in cases if c.id not in {r.case_id for r in done}]
+    if pending:
+        lines += [
+            "",
+            "## Pendentes",
+            "",
+            "Sem resultado válido para a versão atual do gabarito"
+            + (
+                " (gabarito alterado depois da execução: "
+                + ", ".join(r.case_id for r in stale)
+                + ")"
+                if stale
+                else ""
+            )
+            + f": {', '.join(pending)}. Rode `python scripts/run_eval.py --resume`.",
+        ]
+
     lines += ["", "## Casos", ""]
     for r in done:
         case = by_id[r.case_id]
@@ -291,6 +379,8 @@ def build_report(results: list[CaseResult], cases: list[GoldenCase], generated_a
         if case.history:
             lines += [f"**Histórico:** {' → '.join(case.history)}", ""]
         lines.append(f"- Verificação: {r.error or r.detail}")
+        if r.evaluated_at:
+            lines.append(f"- Avaliado em: {r.evaluated_at.replace('T', ' ')}")
         if r.answer:
             lines.append(f"- Resposta: {r.answer}")
         if r.assumptions:

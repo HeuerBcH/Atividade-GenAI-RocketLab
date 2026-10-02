@@ -4,7 +4,20 @@ services:
     env_file: .env
     environment:
       DB_PATH: /app/data/cinerocket.db
+      SYNOPSIS_INDEX_PATH: /app/data/synopsis_index.npz
+      # data/ é somente leitura: o modelo de embeddings (~65 MB) é baixado na 1ª busca
+      EMBEDDING_CACHE_DIR: /home/app/.cache/fastembed
     volumes:
       - ./data:/app/data:ro # o banco entra somente leitura
     ports:
       - "${API_PORT:-8000}:8000"
+
+  web:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE: http://localhost:${API_PORT:-8000}
+    depends_on:
+      - api
+    ports:
+      - "5173:80" # mesma porta do modo dev, já liberada no CORS da API

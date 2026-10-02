@@ -36,9 +36,14 @@ export function columnLabel(column: string): string {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
+// texto que começa com = + - @ vira fórmula no Excel (injeção de CSV, OWASP); há títulos assim
+// na base ("+-90", "-21"). O apóstrofo faz a planilha tratar como texto e não aparece na célula
+const FORMULA_START = /^[=+\-@\t\r]/;
+
 export function toCsv(columns: string[], rows: unknown[][]): string {
   const escape = (v: unknown) => {
-    const text = v === null || v === undefined ? "" : String(v);
+    let text = v === null || v === undefined ? "" : String(v);
+    if (typeof v === "string" && FORMULA_START.test(text)) text = `'${text}`;
     return /[",;\n]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
   };
   return [columns, ...rows].map((r) => r.map(escape).join(";")).join("\n");

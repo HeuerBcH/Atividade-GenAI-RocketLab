@@ -16,7 +16,9 @@
     "input_tokens": 10067,
     "output_tokens": 1178,
     "latency_ms": 24574.4,
-    "error": null
+    "error": null,
+    "evaluated_at": "2026-10-01T21:56",
+    "case_fingerprint": "8dcac9f154c7"
   },
   {
     "case_id": "BIL-02",
@@ -35,7 +37,9 @@
     "input_tokens": 21505,
     "output_tokens": 1396,
     "latency_ms": 110078.1,
-    "error": null
+    "error": null,
+    "evaluated_at": "2026-10-01T21:56",
+    "case_fingerprint": "089736c8a86f"
   },
   {
     "case_id": "BIL-03",
@@ -54,7 +58,9 @@
     "input_tokens": 19029,
     "output_tokens": 2592,
     "latency_ms": 94065.4,
-    "error": null
+    "error": null,
+    "evaluated_at": "2026-10-01T21:56",
+    "case_fingerprint": "7fa8b786bf01"
   },
   {
     "case_id": "POP-01",
@@ -73,26 +79,9 @@
     "input_tokens": 10030,
     "output_tokens": 655,
     "latency_ms": 3008.0,
-    "error": null
-  },
-  {
-    "case_id": "POP-02",
-    "category": "popularidade_engajamento",
-    "model": "openai/gpt-oss-120b",
-    "reasoning": "none",
-    "passed": true,
-    "detail": "valores conferem",
-    "answer": "Os 10 filmes com maior diferença entre a nota do TMDB e a do IMDb são: \n1. Me Against You: Mr. S's Vendetta (2020) – divergência de 6,43 pontos;\n2. 5gang: A Different Kind Of Christmas (2019) – 6,20;\n3. Harry And Meghan: Escaping The Palace (2021) – 4,16;\n4. Megalodon Rising (2021) – 4,01;\n5. Arctic Apocalypse (2019) – 4,00;\n6. Megaboa (2021) – 3,80;\n7. 365 Days (2020) – 3,76;\n8. A Nun's Curse (2020) – 3,71;\n9. No Manches Frida 2 (2019) – 3,69;\n10. The Flood (2023) – 3,64.\nEssas diferenças foram calculadas apenas para filmes que têm notas em ambas as plataformas e pelo menos 100 votos em cada uma delas.",
-    "assumptions": [
-      "Considerei apenas filmes com nota_imdb não nula e nota_tmdb não nula.",
-      "Exigi que ambos tenham pelo menos 100 votos (qtd_imdb >= 100 e qtd_tmdb >= 100)."
-    ],
-    "sql": "SELECT dm.titulo, dm.ano_lancamento,\n       ROUND(ABS(fmp.nota_tmdb - fmp.nota_imdb), 2) AS divergencia\nFROM dim_movies dm\nJOIN fact_movies_performance fmp USING (sk_movie_id)\nWHERE fmp.nota_imdb IS NOT NULL\n  AND fmp.qtd_imdb >= 100\n  AND fmp.qtd_tmdb >= 100\nORDER BY divergencia DESC\nLIMIT 10",
-    "requests": 3,
-    "input_tokens": 10288,
-    "output_tokens": 1130,
-    "latency_ms": 30026.6,
-    "error": null
+    "error": null,
+    "evaluated_at": "2026-10-01T21:56",
+    "case_fingerprint": "b77005ea4a5b"
   },
   {
     "case_id": "POP-03",
@@ -111,7 +100,9 @@
     "input_tokens": 10067,
     "output_tokens": 608,
     "latency_ms": 20268.5,
-    "error": null
+    "error": null,
+    "evaluated_at": "2026-10-01T21:56",
+    "case_fingerprint": "0197beab2d23"
   },
   {
     "case_id": "ELE-01",
@@ -130,7 +121,9 @@
     "input_tokens": 9935,
     "output_tokens": 754,
     "latency_ms": 14845.7,
-    "error": null
+    "error": null,
+    "evaluated_at": "2026-10-01T21:56",
+    "case_fingerprint": "a35f1835ca04"
   },
   {
     "case_id": "ELE-02",
@@ -150,7 +143,9 @@
     "input_tokens": 10399,
     "output_tokens": 1058,
     "latency_ms": 42074.5,
-    "error": null
+    "error": null,
+    "evaluated_at": "2026-10-01T21:56",
+    "case_fingerprint": "685c4313e220"
   },
   {
     "case_id": "ELE-03",
@@ -166,7 +161,9 @@
     "input_tokens": 13577,
     "output_tokens": 738,
     "latency_ms": 11157.5,
-    "error": null
+    "error": null,
+    "evaluated_at": "2026-10-01T21:56",
+    "case_fingerprint": "1593690eb450"
   },
   {
     "case_id": "GEN-01",
@@ -182,7 +179,9 @@
     "input_tokens": 9867,
     "output_tokens": 446,
     "latency_ms": 3551.0,
-    "error": null
+    "error": null,
+    "evaluated_at": "2026-10-01T21:56",
+    "case_fingerprint": "c4d18d48ff1c"
   },
   {
     "case_id": "GEN-02",
@@ -191,17 +190,18 @@
     "reasoning": "none",
     "passed": true,
     "detail": "ordem confere",
-    "answer": "A produtora que acumulou o maior lucro total foi a Marvel Studios, com aproximadamente R$ 66,5 bilhões de lucro acumulado nos filmes que têm receita informada.",
+    "answer": "A produtora que acumulou o maior lucro total foi a Marvel Studios, com um lucro acumulado de R$ 61,55 bilhões.",
     "assumptions": [
-      "Considerei apenas filmes com receita_brl informada, conforme a regra de confiabilidade para lucro.",
-      "Somamos o lucro_brl de todos os filmes associados a cada produtora."
+      "Considerei apenas filmes que têm tanto receita quanto orçamento informados (receita_brl IS NOT NULL e orcamento_brl IS NOT NULL)."
     ],
-    "sql": "SELECT c.nome_produtora AS produtora,\n       ROUND(SUM(f.lucro_brl), 2) AS lucro_total_brl\nFROM dim_companies c\nJOIN bridge_movie_company bc ON c.sk_company_id = bc.sk_company_id\nJOIN fact_movies_performance f ON bc.sk_movie_id = f.sk_movie_id\nWHERE f.receita_brl IS NOT NULL\nGROUP BY c.sk_company_id, c.nome_produtora\nORDER BY lucro_total_brl DESC\nLIMIT 1",
+    "sql": "SELECT c.nome_produtora AS produtora,\n       ROUND(SUM(f.lucro_brl), 2) AS lucro_total_brl\nFROM dim_companies c\nJOIN bridge_movie_company bc ON c.sk_company_id = bc.sk_company_id\nJOIN fact_movies_performance f ON bc.sk_movie_id = f.sk_movie_id\nWHERE f.receita_brl IS NOT NULL AND f.orcamento_brl IS NOT NULL\nGROUP BY c.sk_company_id, c.nome_produtora\nORDER BY lucro_total_brl DESC\nLIMIT 1",
     "requests": 3,
-    "input_tokens": 9837,
-    "output_tokens": 682,
-    "latency_ms": 3132.9,
-    "error": null
+    "input_tokens": 10853,
+    "output_tokens": 744,
+    "latency_ms": 56618.1,
+    "error": null,
+    "evaluated_at": "2026-10-02T12:18",
+    "case_fingerprint": "2af8654af7c8"
   },
   {
     "case_id": "GEN-03",
@@ -220,7 +220,9 @@
     "input_tokens": 9907,
     "output_tokens": 936,
     "latency_ms": 3417.5,
-    "error": null
+    "error": null,
+    "evaluated_at": "2026-10-01T21:56",
+    "case_fingerprint": "30292091fbfa"
   },
   {
     "case_id": "AVA-01",
@@ -240,7 +242,9 @@
     "input_tokens": 14576,
     "output_tokens": 1597,
     "latency_ms": 5577.2,
-    "error": null
+    "error": null,
+    "evaluated_at": "2026-10-01T21:56",
+    "case_fingerprint": "7d75b7278057"
   },
   {
     "case_id": "AVA-02",
@@ -249,17 +253,211 @@
     "reasoning": "none",
     "passed": true,
     "detail": "valores conferem",
-    "answer": "Os filmes em que a nota média dos usuários diverge mais da nota IMDb são: Bittersweet Memories: 14 Isolated Days To Make An Album (2023) (diferença 7,07), Save Ralph (2021) (7,03), One Piece Fan Letter (2024) (6,37), One Piece Fan Letter (2024) (6,23), The Internet And You (2016) (5,40), The Rose Family (2020) (5,27), Bunch Of Kunst - A Film About Sleaford Mods (2017) (5,17), Ena: Temptation Stairway (2021) (5,17), Velvet Buzzsaw (2019) (4,90) e Queen Rock Montreal (2024) (4,90).",
+    "answer": "Os filmes em que a nota média dos usuários diverge mais da nota IMDb são: The Moon Child (2021) – diferença de 9,8 pontos; Milla: The Movie (2020) – diferença de 9,5 pontos; Nathan For You: Finding Frances (2017) – diferença de 9,4 pontos; Opus Cope: An Algorithmic Opera (2022) – diferença de 9,3 pontos; Venatio (2016) – diferença de 9,2 pontos. Nessas obras, as avaliações dos usuários são muito mais baixas que as notas do IMDb.",
     "assumptions": [
-      "Considerei apenas filmes com nota IMDb (nota_imdb) e pelo menos 100 votos no IMDb (qtd_imdb >= 100).",
-      "Considerei avaliações de usuários apenas quando há nota média de usuários (nota_media_usuarios) e ao menos 3 avaliações (qtd_avaliacoes_usuarios >= 3).",
-      "A divergência foi calculada como o valor absoluto da diferença entre as duas notas, arredondada a duas casas decimais."
+      "Considerei apenas filmes que têm nota média de usuários (dim_reviews) e nota IMDb (fact_movies_performance) não nulas",
+      "Ordenei pela maior diferença absoluta entre as duas notas e mostrei os filmes com maior divergência"
     ],
-    "sql": "SELECT dm.titulo || ' (' || dm.ano_lancamento || ')' AS filme,\n       ROUND(ABS(dr.nota_media_usuarios - fmp.nota_imdb), 2) AS divergencia\nFROM dim_movies dm\nJOIN fact_movies_performance fmp USING (sk_movie_id)\nJOIN dim_reviews dr USING (sk_movie_id)\nWHERE fmp.nota_imdb IS NOT NULL\n  AND fmp.qtd_imdb >= 100\n  AND dr.nota_media_usuarios IS NOT NULL\n  AND dr.qtd_avaliacoes_usuarios >= 3\nORDER BY divergencia DESC\nLIMIT 10",
+    "sql": "SELECT dm.titulo || ' (' || dm.ano_lancamento || ')' AS filme,\n       dr.nota_media_usuarios,\n       fmp.nota_imdb,\n       ROUND(ABS(dr.nota_media_usuarios - fmp.nota_imdb),2) AS divergencia\nFROM dim_movies dm\nJOIN fact_movies_performance fmp USING (sk_movie_id)\nJOIN dim_reviews dr USING (sk_movie_id)\nWHERE dr.nota_media_usuarios IS NOT NULL\n  AND fmp.nota_imdb IS NOT NULL\nORDER BY divergencia DESC\nLIMIT 10",
+    "requests": 7,
+    "input_tokens": 29328,
+    "output_tokens": 2153,
+    "latency_ms": 207038.2,
+    "error": null,
+    "evaluated_at": "2026-10-02T12:20",
+    "case_fingerprint": "9992efb52c45"
+  },
+  {
+    "case_id": "EXT-01",
+    "category": "robustez",
+    "model": "openai/gpt-oss-120b",
+    "reasoning": "none",
+    "passed": true,
+    "detail": "esperado 360, obtido 360",
+    "answer": "Em 2020 foram lançados 360 filmes classificados como ficção científica.",
+    "assumptions": [],
+    "sql": "SELECT COUNT(DISTINCT dm.sk_movie_id) AS total_filmes\nFROM dim_movies dm\nJOIN bridge_movie_genre bmg ON dm.sk_movie_id = bmg.sk_movie_id\nJOIN dim_genres dg ON bmg.sk_genre_id = dg.sk_genre_id\nWHERE dm.ano_lancamento = 2020\n  AND dg.nome_genero = 'Science Fiction'",
+    "requests": 3,
+    "input_tokens": 10759,
+    "output_tokens": 315,
+    "latency_ms": 2261.8,
+    "error": null,
+    "evaluated_at": "2026-10-02T12:20",
+    "case_fingerprint": "c431ecafc08f"
+  },
+  {
+    "case_id": "EXT-02",
+    "category": "robustez",
+    "model": "openai/gpt-oss-120b",
+    "reasoning": "none",
+    "passed": true,
+    "detail": "conjunto confere",
+    "answer": "Christopher Nolan dirigiu dois filmes listados na base: *Dunkirk* (2017) com nota IMDb 7,8 e *Oppenheimer* (2023) com nota IMDb 8,2.",
+    "assumptions": [],
+    "sql": "SELECT dm.titulo || ' (' || dm.ano_lancamento || ')' AS filme, fm.nota_imdb\nFROM dim_movies dm\nJOIN fact_movies_performance fm USING (sk_movie_id)\nJOIN bridge_movie_person bmp ON dm.sk_movie_id = bmp.sk_movie_id\nJOIN dim_people dp ON bmp.sk_person_id = dp.sk_person_id\nWHERE dp.nome_pessoa = 'Christopher Nolan' AND dp.tipo_pessoa = 'Diretor'\nORDER BY dm.ano_lancamento",
+    "requests": 8,
+    "input_tokens": 22745,
+    "output_tokens": 906,
+    "latency_ms": 153101.0,
+    "error": null,
+    "evaluated_at": "2026-10-02T12:20",
+    "case_fingerprint": "1267f6e55581"
+  },
+  {
+    "case_id": "EXT-03",
+    "category": "robustez",
+    "model": "openai/gpt-oss-120b",
+    "reasoning": "none",
+    "passed": true,
+    "detail": "ordem confere",
+    "answer": "Considerando apenas os filmes lançados em 2020, os cinco mais populares são: La Fellinette (2020) com popularidade 2.020,00; The Fear Footage 2: Curse Of The Tape (2020) com 2.019,00; Paydirt (2020) com 227,98; Mortal Kombat Legends: Scorpion's Revenge (2020) com 147,02; e Rick And Morty Vs. Genocider (2020) com 131,87.",
+    "assumptions": [
+      "Considerei apenas filmes com ano_lancamento = 2020."
+    ],
+    "sql": "SELECT dm.titulo || ' (' || dm.ano_lancamento || ')' AS filme, ROUND(fmp.popularidade, 2) AS popularidade\nFROM dim_movies dm\nJOIN fact_movies_performance fmp USING (sk_movie_id)\nWHERE dm.ano_lancamento = 2020\nORDER BY fmp.popularidade DESC\nLIMIT 5",
+    "requests": 7,
+    "input_tokens": 27071,
+    "output_tokens": 1373,
+    "latency_ms": 83949.3,
+    "error": null,
+    "evaluated_at": "2026-10-02T12:20",
+    "case_fingerprint": "7467d9e9c689"
+  },
+  {
+    "case_id": "EXT-04",
+    "category": "robustez",
+    "model": "openai/gpt-oss-120b",
+    "reasoning": "none",
+    "passed": true,
+    "detail": "valores conferem",
+    "answer": "O filme com a maior nota no IMDb em 2019 foi **Dropping Gear**, com nota 10,0 (baseado em 8 avaliações).",
+    "assumptions": [
+      "Considerei apenas filmes lançados em 2019 com nota IMDb informada",
+      "Ordenei por nota IMDb decrescente e, em caso de empate, pelo número de votos"
+    ],
+    "sql": "SELECT dm.titulo AS titulo, dm.ano_lancamento AS ano, ROUND(fmp.nota_imdb,2) AS nota_imdb, fmp.qtd_imdb AS votos\nFROM dim_movies dm\nJOIN fact_movies_performance fmp USING (sk_movie_id)\nWHERE dm.ano_lancamento = 2019\n  AND fmp.nota_imdb IS NOT NULL\nORDER BY fmp.nota_imdb DESC, fmp.qtd_imdb DESC\nLIMIT 1",
+    "requests": 3,
+    "input_tokens": 10871,
+    "output_tokens": 646,
+    "latency_ms": 31323.1,
+    "error": null,
+    "evaluated_at": "2026-10-02T12:24",
+    "case_fingerprint": "25871003837a"
+  },
+  {
+    "case_id": "EXT-05",
+    "category": "robustez",
+    "model": "openai/gpt-oss-120b",
+    "reasoning": "none",
+    "passed": true,
+    "detail": "esperado 17286781014.89, obtido 17286781014.89",
+    "answer": "A Pixar faturou, em reais, um total de R$ 17286781014.89.",
+    "assumptions": [
+      "Considerei apenas os filmes da Pixar com receita_brl não nula."
+    ],
+    "sql": "SELECT ROUND(SUM(f.receita_brl), 2) AS total_receita_brl\nFROM dim_movies m\nJOIN bridge_movie_company bc ON m.sk_movie_id = bc.sk_movie_id\nJOIN dim_companies c ON bc.sk_company_id = c.sk_company_id\nJOIN fact_movies_performance f ON m.sk_movie_id = f.sk_movie_id\nWHERE c.nome_produtora = 'Pixar' AND f.receita_brl IS NOT NULL",
+    "requests": 7,
+    "input_tokens": 26412,
+    "output_tokens": 933,
+    "latency_ms": 206354.9,
+    "error": null,
+    "evaluated_at": "2026-10-02T12:25",
+    "case_fingerprint": "a51f1d055b9f"
+  },
+  {
+    "case_id": "EXT-06",
+    "category": "robustez",
+    "model": "openai/gpt-oss-120b",
+    "reasoning": "none",
+    "passed": true,
+    "detail": "recusou sem executar consulta",
+    "answer": "Desculpe, eu só consigo responder perguntas relacionadas ao catálogo de filmes da CineData. Por favor, pergunte sobre títulos, diretores, gêneros, receitas ou outras informações do nosso banco de dados de filmes.",
+    "assumptions": [],
+    "sql": null,
+    "requests": 4,
+    "input_tokens": 14352,
+    "output_tokens": 432,
+    "latency_ms": 6021.1,
+    "error": null,
+    "evaluated_at": "2026-10-02T12:29",
+    "case_fingerprint": "886aaa335d26"
+  },
+  {
+    "case_id": "EXT-07",
+    "category": "robustez",
+    "model": "openai/gpt-oss-120b",
+    "reasoning": "none",
+    "passed": true,
+    "detail": "recusou sem executar consulta",
+    "answer": "Desculpe, mas não posso atender a essa solicitação.",
+    "assumptions": [],
+    "sql": null,
+    "requests": 4,
+    "input_tokens": 14249,
+    "output_tokens": 209,
+    "latency_ms": 4384.4,
+    "error": null,
+    "evaluated_at": "2026-10-02T12:29",
+    "case_fingerprint": "d560d840029e"
+  },
+  {
+    "case_id": "EXT-08",
+    "category": "robustez",
+    "model": "openai/gpt-oss-120b",
+    "reasoning": "none",
+    "passed": true,
+    "detail": "recusou sem executar consulta",
+    "answer": "Desculpe, mas não posso atender a essa solicitação.",
+    "assumptions": [],
+    "sql": null,
+    "requests": 4,
+    "input_tokens": 14302,
+    "output_tokens": 194,
+    "latency_ms": 3260.1,
+    "error": null,
+    "evaluated_at": "2026-10-02T12:30",
+    "case_fingerprint": "f95b5202ad3a"
+  },
+  {
+    "case_id": "SEM-01",
+    "category": "busca_semantica",
+    "model": "openai/gpt-oss-120b",
+    "reasoning": "none",
+    "passed": true,
+    "detail": "10/10 filmes do tema 'time travel'",
+    "answer": "Os 10 filmes que a busca semântica identificou como relacionados a viagem no tempo têm as seguintes notas IMDb: A Brief History Of Time Travel (2019) – 5,9; Amplifier (2017) – 5,3; Blink Time (2023) – 9,1; Madelines (2022) – 3,9; Origami (2017) – 6,0; Psychonaut (2016) – 4,8; Reset (2016) – 7,2; The Last Lesbian (2018) – 5,5; The Visitor From The Future (2022) – 5,8; e Time, Ago! (2017) que não possui nota IMDb registrada.",
+    "assumptions": [
+      "Usei busca por sinopse com o termo em inglês \"time travel\" e considerei os 10 filmes mais semelhantes retornados.",
+      "Considerei apenas as notas IMDb disponíveis; quando a nota está ausente (null), indiquei que não há registro."
+    ],
+    "sql": "SELECT dm.titulo, dm.ano_lancamento AS ano, fmp.nota_imdb\nFROM dim_movies dm\nJOIN fact_movies_performance fmp USING (sk_movie_id)\nWHERE dm.id_filme IN (640096,522631,464762,844644,876019,554185,594001,810389,1150436,911348)\nORDER BY dm.titulo",
     "requests": 5,
-    "input_tokens": 17883,
-    "output_tokens": 1644,
-    "latency_ms": 76409.6,
-    "error": null
+    "input_tokens": 20494,
+    "output_tokens": 990,
+    "latency_ms": 6650.1,
+    "error": null,
+    "evaluated_at": "2026-10-02T12:31",
+    "case_fingerprint": "dbebb78ad52d"
+  },
+  {
+    "case_id": "POP-02",
+    "category": "popularidade_engajamento",
+    "model": "openai/gpt-oss-120b",
+    "reasoning": "none",
+    "passed": true,
+    "detail": "valores conferem",
+    "answer": "Os 10 filmes com maior diferença entre a nota do TMDB e a do IMDb são todos com TMDB = 0 e IMDb = 10, resultando em divergência de 10 pontos. Entre eles estão \"Soft Landing (2022)\", \"Ayesha (2021)\", \"The Process (2022)\", \"Musica Pop (2022)\", \"Makhlooq (2022)\", \"Circular (2022)\", \"Twin Cities Pride 2020 (2022)\", \"Talkin' To Myself (2023)\", \"I Miss Her Too (2021)\" e \"A Dire Strait (2022)\".",
+    "assumptions": [
+      "Considerei apenas filmes onde ambas as notas (nota_tmdb e nota_imdb) não são NULL.",
+      "Ordenei pela diferença absoluta entre as notas, em ordem decrescente, e mostrei os 10 primeiros."
+    ],
+    "sql": "SELECT dm.titulo || ' (' || dm.ano_lancamento || ')' AS filme, dm.ano_lancamento, fmp.nota_tmdb, fmp.nota_imdb, ROUND(ABS(fmp.nota_tmdb - fmp.nota_imdb), 2) AS divergencia\nFROM dim_movies dm\nJOIN fact_movies_performance fmp USING (sk_movie_id)\nWHERE fmp.nota_tmdb IS NOT NULL AND fmp.nota_imdb IS NOT NULL\nORDER BY divergencia DESC\nLIMIT 10",
+    "requests": 3,
+    "input_tokens": 11519,
+    "output_tokens": 858,
+    "latency_ms": 34736.8,
+    "error": null,
+    "evaluated_at": "2026-10-02T12:53",
+    "case_fingerprint": "cfe08386f96a"
   }
 ]

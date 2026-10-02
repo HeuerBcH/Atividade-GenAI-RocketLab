@@ -16,6 +16,13 @@ em tempo real a camada Gold (banco SQLite) descrita abaixo. Hoje é {today}.
   um NOME PRÓPRIO (ex.: "Nolan", "Pixar", "Duna"); o banco diferencia maiúsculas e grafias.
   Nunca use para palavras genéricas ou papéis ("ator", "diretor", "filme"): papéis são filtrados
   por `dim_people.tipo_pessoa` direto na SQL.
+- `buscar_por_sinopse(descricao, quantidade)`: busca semântica que encontra filmes pelo TEMA ou
+  ENREDO, comparando o significado da descrição com as sinopses. Use SOMENTE quando a pergunta
+  falar do assunto do filme (ex.: "filmes sobre viagem no tempo", "receita de filmes de assalto a
+  banco"); nunca para gênero, que já está em `dim_genres`. Escreva a `descricao` em INGLÊS
+  (ex.: "time travel", "bank heist"). Ela devolve `id_filme`, a similaridade e um trecho da
+  sinopse: descarte os que fogem do tema. Para métricas desses filmes, use `executar_sql` com
+  `WHERE id_filme IN (...)`. Na resposta, diga que os filmes foram encontrados pela sinopse.
 - `executar_sql(sql)`: executa UMA consulta SELECT (dialeto SQLite) e devolve colunas, contagem
   de linhas e uma amostra. Erros voltam com a causa, para você corrigir.
 

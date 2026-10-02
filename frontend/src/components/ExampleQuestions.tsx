@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 import type { Examples } from "../types";
-import { ChartIcon, ChevronIcon, CodeIcon, DollarIcon, FilmIcon, LayersIcon, StarIcon, TrendIcon, UsersIcon } from "./icons";
+import { ChartIcon, ChevronIcon, CodeIcon, DollarIcon, FilmIcon, LayersIcon, SparkIcon, StarIcon, TrendIcon, UsersIcon } from "./icons";
 
 const ICONS: Record<string, ReactNode> = {
   "Bilheteria e Finanças": <DollarIcon />,
@@ -8,6 +8,7 @@ const ICONS: Record<string, ReactNode> = {
   "Elenco e Equipe": <UsersIcon />,
   "Gêneros e Produtoras": <LayersIcon />,
   "Avaliações dos Usuários": <StarIcon />,
+  "Busca por tema (sinopses)": <SparkIcon />,
 };
 
 const FEATURES: { icon: ReactNode; text: string }[] = [

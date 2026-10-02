@@ -1,7 +1,15 @@
 from __future__ import annotations
 
-from cinedata_agent.evaluation import CaseResult, Table, build_report, compare
+from cinedata_agent.evaluation import (
+    CaseResult,
+    Table,
+    build_report,
+    compare,
+    compare_semantic,
+    fingerprint,
+)
 from cinedata_agent.golden import GoldenCase, load_golden
+from cinedata_agent.models import AskResponse, TraceStep, Usage
 
 
 def _case(mode: str, **check: object) -> GoldenCase:
@@ -53,7 +61,10 @@ def test_refusal_passes_only_without_a_query() -> None:
 
 
 def test_report_summarizes_accuracy_by_category() -> None:
+    cases = {c.id: c for c in load_golden().cases}
     ok = CaseResult(
+        case_fingerprint=fingerprint(cases["BIL-01"]),
+        evaluated_at="2026-10-03T09:00",
         case_id="BIL-01",
         category="bilheteria_financas",
         model="m",
@@ -66,6 +77,7 @@ def test_report_summarizes_accuracy_by_category() -> None:
         latency_ms=1500,
     )
     failed = CaseResult(
+        case_fingerprint=fingerprint(cases["EXT-06"]),
         case_id="EXT-06",
         category="robustez",
         model="m",
@@ -74,9 +86,48 @@ def test_report_summarizes_accuracy_by_category() -> None:
         detail="x",
         error="Os modelos estão indisponíveis.",
     )
-    report = build_report([ok, failed], load_golden().cases, "01/10/2026 21:00")
+    # resultado de um gabarito que mudou depois: não conta como acerto
+    stale = ok.model_copy(update={"case_id": "BIL-02", "case_fingerprint": "antigo"})
+    report = build_report([ok, failed, stale], list(cases.values()), "01/10/2026 21:00")
 
     assert "| Acerto geral | 1/2 (50%) |" in report
     assert "| Perguntas do enunciado | 1/1 (100%) |" in report
     assert "| Bilheteria e Finanças | 1/1 (100%) |" in report
     assert "### EXT-06 — FALHA" in report
+    assert "### BIL-02" not in report and "gabarito alterado depois da execução: BIL-02" in report
+    assert "- Avaliado em: 2026-10-03 09:00" in report
+
+
+def _response(steps: list[tuple[str, str]], rows: list[list[object]]) -> AskResponse:
+    return AskResponse(
+        question="q",
+        answer="a",
+        sql="SELECT 1",
+        columns=["titulo", "nota_imdb"],
+        rows=rows,
+        steps=[TraceStep(kind=k, content=c) for k, c in steps],  # type: ignore[arg-type]
+        model="m",
+        usage=Usage(requests=1, input_tokens=1, output_tokens=1),
+        latency_ms=1.0,
+    )
+
+
+def test_semantic_mode_checks_the_tool_and_the_theme() -> None:
+    case = GoldenCase.model_validate(
+        {
+            "id": "SEM-99",
+            "category": "busca_semantica",
+            "source": "extra",
+            "question": "filmes sobre viagem no tempo",
+            "check": {"mode": "semantic", "query": "time travel"},
+        }
+    )
+    theme = {"paradox", "time machine"}
+    searched = [("acao", 'buscar_por_sinopse({"descricao": "time travel"})')]
+    rows = [["Paradox", 7.1], ["Time Machine (2002)", 6.0], ["Outro", 5.0]]
+
+    assert compare_semantic(case, theme, _response(searched, rows)).passed  # 2 de 3
+    assert not compare_semantic(case, theme, _response(searched, [["Outro", 5.0]])).passed
+    only_sql = [("acao", 'executar_sql({"sql": "SELECT ..."})')]
+    verdict = compare_semantic(case, theme, _response(only_sql, rows))
+    assert not verdict.passed and "não usou" in verdict.detail
