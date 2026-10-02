@@ -6,9 +6,15 @@ from pathlib import Path
 
 import pytest
 
-from cinedata_agent import db_setup
 from cinedata_agent.config import get_settings
-from cinedata_agent.db import QueryError, QueryTimeoutError, readonly_connection, run_query
+from cinedata_agent.db import (
+    DatabaseUnavailable,
+    QueryError,
+    QueryTimeoutError,
+    check_database,
+    readonly_connection,
+    run_query,
+)
 from cinedata_agent.guardrails import GuardrailError
 
 INFINITE_CTE = (
@@ -18,9 +24,6 @@ INFINITE_CTE = (
 
 @pytest.fixture
 def prepared_db(mini_gold_db: Path) -> Path:
-    conn = sqlite3.connect(mini_gold_db)
-    db_setup.prepare(conn)
-    conn.close()
     return mini_gold_db
 
 
@@ -113,7 +116,7 @@ def test_sqlite_errors_are_reported_for_self_correction(prepared_db: Path) -> No
 
 
 def test_missing_database_is_explicit(tmp_path: Path) -> None:
-    with pytest.raises(FileNotFoundError, match="não encontrado"):
+    with pytest.raises(DatabaseUnavailable, match="não encontrado"):
         _run("SELECT 1", tmp_path / "ausente.db")
 
 
@@ -137,3 +140,35 @@ def test_heaviest_assignment_query_fits_the_timeout(gold_conn) -> None:
     )
     assert result.rows[0][2] == 37
     assert result.elapsed_ms < settings.query_timeout_seconds * 1000
+
+
+# ----------------------------------------------------------------------- validação do banco
+def test_check_accepts_the_gold_schema(mini_gold_db: Path) -> None:
+    check_database(mini_gold_db)
+
+
+def test_check_reports_missing_tables(mini_gold_db: Path) -> None:
+    conn = sqlite3.connect(mini_gold_db)
+    conn.execute("DROP TABLE dim_reviews")
+    conn.commit()
+    conn.close()
+    with pytest.raises(DatabaseUnavailable, match="dim_reviews"):
+        check_database(mini_gold_db)
+
+
+def test_check_reports_missing_file(tmp_path: Path) -> None:
+    with pytest.raises(DatabaseUnavailable, match="Baixe o cinerocket"):
+        check_database(tmp_path / "ausente.db")
+
+
+def test_refuses_to_ignore_pending_wal(mini_gold_db: Path) -> None:
+    wal = mini_gold_db.with_name(mini_gold_db.name + "-wal")
+    wal.write_bytes(b"x" * 32)
+    with pytest.raises(DatabaseUnavailable, match="pendentes"):
+        check_database(mini_gold_db)
+
+
+def test_reading_never_changes_the_file(mini_gold_db: Path) -> None:
+    before = mini_gold_db.read_bytes()
+    run_query("SELECT * FROM dim_people", db_path=mini_gold_db, max_rows=10, timeout_seconds=5)
+    assert mini_gold_db.read_bytes() == before

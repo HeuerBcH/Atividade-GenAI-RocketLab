@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import sqlite3
 import typing
 from collections.abc import Callable
 from datetime import date
@@ -11,14 +10,19 @@ from pathlib import Path
 
 import pytest
 from pydantic_ai.exceptions import ModelHTTPError
-from pydantic_ai.messages import ModelMessage, ModelRequest, ModelResponse, ToolCallPart
+from pydantic_ai.messages import (
+    ModelMessage,
+    ModelRequest,
+    ModelResponse,
+    TextPart,
+    ToolCallPart,
+)
 from pydantic_ai.models.fallback import FallbackModel
 from pydantic_ai.models.function import AgentInfo, FunctionModel
 from pydantic_ai.models.groq import GroqModel
 from pydantic_ai.models.openrouter import OpenRouterModel
 
 from cinedata_agent import agent as agent_module
-from cinedata_agent import db_setup
 from cinedata_agent.agent import (
     AgentDeps,
     AgentError,
@@ -36,9 +40,6 @@ Script = Callable[[list[ModelMessage], AgentInfo], ModelResponse]
 
 @pytest.fixture
 def deps(mini_gold_db: Path) -> AgentDeps:
-    conn = sqlite3.connect(mini_gold_db)
-    db_setup.prepare(conn)
-    conn.close()
     return AgentDeps(db_path=mini_gold_db, max_rows=100, timeout_seconds=5.0)
 
 
@@ -286,7 +287,7 @@ def test_build_model_uses_fallback_chain_and_generation_settings() -> None:
         _env_file=None,
         llm_provider="openrouter",
         openrouter_api_key="sk-or-v1-x",
-        models="a/m1:free, b/m2:free",
+        model_name="a/m1:free, b/m2:free",
         temperature=0,
         reasoning_effort="low",
     )
@@ -301,7 +302,10 @@ def test_build_model_uses_fallback_chain_and_generation_settings() -> None:
 
     single = build_model(
         Settings(
-            _env_file=None, llm_provider="openrouter", openrouter_api_key="k", models="a/m1:free"
+            _env_file=None,
+            llm_provider="openrouter",
+            openrouter_api_key="k",
+            model_name="a/m1:free",
         )
     )
     assert isinstance(single, OpenRouterModel)
@@ -368,7 +372,10 @@ def test_groq_is_the_default_provider_with_its_own_chain() -> None:
 
 def test_groq_reasoning_effort_is_forwarded_when_requested() -> None:
     settings = Settings(
-        _env_file=None, groq_api_key="gsk_x", models="openai/gpt-oss-120b", reasoning_effort="low"
+        _env_file=None,
+        groq_api_key="gsk_x",
+        model_name="openai/gpt-oss-120b",
+        reasoning_effort="low",
     )
     assert build_model(settings).settings["groq_reasoning_effort"] == "low"
 
@@ -376,3 +383,53 @@ def test_groq_reasoning_effort_is_forwarded_when_requested() -> None:
 def test_missing_key_names_the_right_variable() -> None:
     with pytest.raises(ConfigurationError, match="GROQ_API_KEY"):
         build_model(Settings(_env_file=None, llm_provider="groq"))
+
+
+def test_retry_policy_per_provider() -> None:
+    groq = build_model(
+        Settings(_env_file=None, groq_api_key="gsk_x", model_name="openai/gpt-oss-120b")
+    )
+    openrouter = build_model(
+        Settings(
+            _env_file=None, llm_provider="openrouter", openrouter_api_key="k", model_name="a/m"
+        )
+    )
+    assert groq.client.max_retries == 3  # espera a janela de tokens/minuto do Groq
+    assert openrouter.client.max_retries == 0
+
+
+def test_plain_text_answer_is_accepted_and_still_verified(deps: AgentDeps) -> None:
+    """Regressão: o gpt-oss responde em texto depois de consultar (o Groq dava tool_use_failed)."""
+    answers = iter(["Há 9 pessoas cadastradas na base.", "Há 2 pessoas cadastradas na base."])
+
+    def text_model(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        if _tool_returns(messages) == 0:
+            return _call("executar_sql", sql="SELECT COUNT(*) AS total FROM dim_people")
+        return ModelResponse(parts=[TextPart(content=next(answers))])
+
+    response, _ = _run(FunctionModel(text_model), deps)
+    assert response.answer == "Há 2 pessoas cadastradas na base."
+    assert response.assumptions == [] and response.rows == [[2]]
+    assert any("NÃO aparecem" in s.content for s in response.steps if s.kind == "erro")
+
+
+def test_groq_base_url_accepts_the_openai_compatible_form() -> None:
+    settings = Settings(
+        _env_file=None,
+        groq_api_key="gsk_x",
+        model_name="openai/gpt-oss-120b",
+        model_base_url="https://api.groq.com/openai/v1/",
+    )
+    assert str(build_model(settings).client.base_url).rstrip("/") == "https://api.groq.com"
+
+
+def test_question_timeout_interrupts_the_run(deps: AgentDeps) -> None:
+    import time as _time
+
+    def slow(messages: list[ModelMessage], info: AgentInfo) -> ModelResponse:
+        _time.sleep(1)
+        return _final(info, "Resposta de teste suficientemente longa.")
+
+    agent = build_agent(FunctionModel(slow))
+    with pytest.raises(AgentError, match="passou de"):
+        asyncio.run(ask(agent, "x", deps=deps, max_requests=5, timeout_seconds=0.2))

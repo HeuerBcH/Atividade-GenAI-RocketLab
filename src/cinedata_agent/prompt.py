@@ -1,4 +1,4 @@
-"""Montagem do system prompt a partir do template versionado e da camada semântica."""
+"""Monta o system prompt a partir do template e da camada semântica."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ from datetime import date
 from functools import cache
 from importlib.resources import files
 
-from .semantic_layer import render_markdown
+from .semantic_layer import render_prompt
 
 
 @cache
@@ -17,14 +17,10 @@ def _template() -> str:
 
 def build_instructions(today: date | None = None) -> str:
     today = today or date.today()
-    return _template().format(today=today.isoformat(), semantic_layer=render_markdown())
+    return _template().format(today=today.isoformat(), semantic_layer=render_prompt())
 
 
 @cache
 def prompt_version() -> str:
-    """Hash curto do template + camada semântica: muda sempre que o prompt muda.
-
-    Usado para invalidar o cache de respostas e para rastrear resultados de avaliação.
-    """
-    content = _template() + render_markdown()
+    content = _template() + render_prompt()
     return hashlib.sha256(content.encode("utf-8")).hexdigest()[:12]

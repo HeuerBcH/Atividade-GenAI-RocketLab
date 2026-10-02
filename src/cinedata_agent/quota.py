@@ -1,8 +1,4 @@
-"""Consulta da cota diária de modelos gratuitos do OpenRouter.
-
-`GET /key` não é uma chamada de modelo, então pode ser usada à vontade para planejar
-testes antes de gastar requisições (limite de 50/dia no plano gratuito).
-"""
+"""Consulta da cota diária de modelos gratuitos do OpenRouter."""
 
 from __future__ import annotations
 
@@ -18,7 +14,7 @@ GROQ_LIMITS_URL = "https://console.groq.com/settings/limits"
 
 
 class QuotaError(RuntimeError):
-    """Falha ao consultar a cota (chave ausente/inválida ou erro de rede)."""
+    pass
 
 
 class QuotaStatus(BaseModel):
@@ -30,7 +26,7 @@ class QuotaStatus(BaseModel):
 
 
 def next_reset(now: datetime | None = None) -> datetime:
-    """O contador zera à meia-noite UTC (21h no horário de Brasília)."""
+    # zera à meia-noite UTC (21h em Brasília)
     now = now or datetime.now(UTC)
     return (now + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
 
@@ -48,7 +44,6 @@ def parse_key_response(payload: dict) -> QuotaStatus:
 
 
 def fetch_quota(settings: Settings, client: httpx.Client | None = None) -> QuotaStatus:
-    """Cota diária de modelos gratuitos do OpenRouter (o Groq não expõe esse endpoint)."""
     if settings.llm_provider != "openrouter":
         raise QuotaError(f"O Groq não informa a cota por API; consulte {GROQ_LIMITS_URL}.")
     if settings.openrouter_api_key is None:
@@ -58,7 +53,7 @@ def fetch_quota(settings: Settings, client: httpx.Client | None = None) -> Quota
     owns_client = client is None
     client = client or httpx.Client(timeout=TIMEOUT_SECONDS)
     try:
-        response = client.get(f"{settings.openrouter_base_url}/key", headers=headers)
+        response = client.get(f"{settings.base_url}/key", headers=headers)
     except httpx.HTTPError as exc:
         raise QuotaError(f"Falha de rede ao consultar o OpenRouter: {exc}") from exc
     finally:
@@ -72,7 +67,6 @@ def fetch_quota(settings: Settings, client: httpx.Client | None = None) -> Quota
     return parse_key_response(response.json())
 
 
-# ------------------------------------------------------------------- listagem de modelos
 class ModelInfo(BaseModel):
     id: str
     context_window: int | None = None
@@ -86,7 +80,7 @@ def parse_models(provider: str, payload: dict) -> list[ModelInfo]:
             if item.get("active") is False:
                 continue
             models.append(ModelInfo(id=item["id"], context_window=item.get("context_window")))
-        elif item["id"].endswith(":free"):  # OpenRouter: só os gratuitos
+        elif item["id"].endswith(":free"):
             params = item.get("supported_parameters") or []
             models.append(
                 ModelInfo(
@@ -99,13 +93,10 @@ def parse_models(provider: str, payload: dict) -> list[ModelInfo]:
 
 
 def list_models(settings: Settings, client: httpx.Client | None = None) -> list[ModelInfo]:
-    """Lista os modelos do provedor configurado (não consome cota de geração)."""
     if settings.api_key is None:
         variable = f"{settings.llm_provider.upper()}_API_KEY"
         raise QuotaError(f"{variable} não configurada (veja .env.example).")
-    base = (
-        settings.groq_base_url if settings.llm_provider == "groq" else settings.openrouter_base_url
-    )
+    base = settings.base_url
     headers = {"Authorization": f"Bearer {settings.api_key.get_secret_value()}"}
     owns_client = client is None
     client = client or httpx.Client(timeout=TIMEOUT_SECONDS)

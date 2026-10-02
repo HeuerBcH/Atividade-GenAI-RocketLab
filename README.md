@@ -19,8 +19,8 @@ pip install -r requirements.txt
 # 2. Configuração
 cp .env.example .env            # preencha GROQ_API_KEY
 
-# 3. Banco de dados: baixe o cinerocket.db (link do Drive da atividade) em data/cinerocket.db
-python scripts/prepare_db.py    # valida as tabelas e cria índices (~10 s, uma única vez)
+# 3. Banco de dados: baixe o cinerocket.db (link do Drive da atividade) e salve em
+#    data/cinerocket.db. Nenhum preparo é necessário: o arquivo é aberto somente leitura.
 
 # 4. Verificações
 python scripts/list_models.py   # modelos disponíveis no provedor (não consome cota)
@@ -43,9 +43,8 @@ python -m cinedata_agent "..." --json                                           
 src/cinedata_agent/      pacote principal
   semantic_layer.py      significado de negócio das tabelas (fonte do prompt e do dicionário)
   golden.py              modelo do conjunto de avaliação
-  db_setup.py            preparação do banco (índices, estatísticas)
   guardrails.py          validação da SQL gerada pelo LLM
-  db.py                  execução somente leitura (authorizer, timeout, teto de linhas)
+  db.py                  acesso somente leitura ao banco (validação, authorizer, timeout)
   agent.py               agente Pydantic AI (ferramentas, fallback de modelos, validação ReAct)
   grounding.py           verificação anti-alucinação (números e nomes precisam estar nos dados)
   prompts/               system prompt versionado

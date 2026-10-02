@@ -6,11 +6,10 @@ from pathlib import Path
 
 import pytest
 
-from cinedata_agent import db_setup
 from cinedata_agent.config import get_settings
+from cinedata_agent.db import DatabaseUnavailable, check_database, readonly_connection
 
-# Esqueleto mínimo das 10 tabelas Gold (só as colunas usadas por índices/testes),
-# para que os testes não dependam do arquivo real de ~580 MB.
+# esqueleto das 10 tabelas Gold, para os testes não dependerem do arquivo real de ~580 MB
 MINI_GOLD_SCHEMA = """
 CREATE TABLE dim_movies (sk_movie_id TEXT PRIMARY KEY, titulo TEXT NOT NULL);
 CREATE TABLE fact_movies_performance (sk_movie_id TEXT PRIMARY KEY, receita_brl NUMERIC);
@@ -33,18 +32,15 @@ INSERT INTO dim_people VALUES ('p1', 'Ator Um', 'Ator'), ('p2', 'Diretora Dois',
 
 @pytest.fixture(scope="session")
 def gold_conn() -> Iterator[sqlite3.Connection]:
-    """Conexão somente leitura com o banco real; pula o teste se ele não estiver pronto."""
+    """Banco real em data/; os testes que dependem dele são pulados se ele não existir."""
     db_path = get_settings().db_path
-    if not db_path.is_file():
-        pytest.skip(f"banco real ausente em {db_path}")
-    conn = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
-    if not db_setup.is_prepared(conn):
-        conn.close()
-        pytest.skip("banco real não preparado (rode scripts/prepare_db.py)")
-    for pragma in db_setup.READ_PRAGMAS:
-        conn.execute(pragma)
-    yield conn
-    conn.close()
+    try:
+        check_database(db_path)
+    except DatabaseUnavailable as exc:
+        pytest.skip(str(exc))
+    with readonly_connection(db_path) as conn:
+        conn.set_authorizer(None)
+        yield conn
 
 
 @pytest.fixture
@@ -55,10 +51,3 @@ def mini_gold_db(tmp_path: Path) -> Path:
     conn.execute("PRAGMA journal_mode = WAL")  # igual ao arquivo distribuído
     conn.close()
     return path
-
-
-@pytest.fixture
-def mini_gold_conn(mini_gold_db: Path) -> Iterator[sqlite3.Connection]:
-    conn = sqlite3.connect(mini_gold_db)
-    yield conn
-    conn.close()

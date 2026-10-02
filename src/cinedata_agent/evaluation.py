@@ -1,9 +1,4 @@
-"""Comparação do resultado do agente com a SQL de referência (execution accuracy).
-
-As colunas do agente são localizadas pelo CONTEÚDO, não pelo nome: o modelo pode chamar
-"titulo" de "filme" ou "receita_brl" de "receita_total" sem que isso seja um erro. Números
-são comparados com tolerância relativa e aceitam escala percentual (0,25 == 25%).
-"""
+"""Compara o resultado do agente com o da SQL de referência (execution accuracy)."""
 
 from __future__ import annotations
 
@@ -76,7 +71,7 @@ def _best_text_column(expected: list[object], table: Table) -> int | None:
 
 
 def _best_numeric_column(expected: list[object], table: Table, rel_tol: float) -> int | None:
-    """Coluna com mais valores esperados, em qualquer posição (a ordem é checada depois)."""
+    # procura em qualquer posição; a ordem é conferida depois
     scores = []
     for i in range(len(table.columns)):
         actual = [a for a in table.column_at(i) if _as_float(a) is not None]
@@ -92,7 +87,6 @@ def _keys(table: Table, indexes: list[int], limit: int | None) -> list[tuple[str
 
 
 def compare(case: GoldenCase, reference: Table, actual: Table | None) -> Verdict:
-    """Compara o resultado do agente (`actual`) com o da SQL de referência."""
     check = case.check
     if check.mode == "refusal":
         if actual is None or not actual.rows:
@@ -182,27 +176,31 @@ def reference_table(case: GoldenCase, settings: Settings) -> Table:
 
 
 async def run_case(
-    agent: Agent[AgentDeps, AgentOutput], case: GoldenCase, settings: Settings, model_label: str
+    agent: Agent[AgentDeps, AgentOutput | str],
+    case: GoldenCase,
+    settings: Settings,
+    model_label: str,
 ) -> CaseResult:
-    """Executa um caso do golden set (incluindo o histórico, se houver) e o avalia."""
     base = {
         "case_id": case.id,
         "category": case.category,
         "model": model_label,
         "reasoning": settings.reasoning_effort,
     }
-    history = None
+    history: list = []
     requests = input_tokens = output_tokens = 0
     latency = 0.0
     try:
         for previous in [*case.history, case.question]:
-            response, history = await ask(
+            response, new_messages = await ask(
                 agent,
                 previous,
                 deps=AgentDeps.from_settings(settings),
                 max_requests=settings.max_requests_per_question,
-                message_history=history,
+                message_history=history or None,
+                timeout_seconds=settings.question_timeout_seconds,
             )
+            history += new_messages
             requests += response.usage.requests
             input_tokens += response.usage.input_tokens
             output_tokens += response.usage.output_tokens

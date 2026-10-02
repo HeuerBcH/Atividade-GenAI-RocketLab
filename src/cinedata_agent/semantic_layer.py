@@ -1,11 +1,4 @@
-"""Camada semântica: o significado de negócio do modelo dimensional da camada Gold.
-
-Fonte única de verdade consumida pelo system prompt do agente e pelo dicionário de dados
-(`docs/dicionario_dados.md`, gerado por `scripts/gen_data_dictionary.py`). Todas as regras
-abaixo foram derivadas de profiling do banco real (ver docs/decisoes.md, D5).
-
-Um teste garante que cada tabela/coluna descrita aqui existe no banco e vice-versa.
-"""
+"""Significado de negócio das tabelas Gold. Alimenta o prompt e o dicionário de dados."""
 
 from __future__ import annotations
 
@@ -229,7 +222,6 @@ GENRE_TRANSLATIONS: dict[str, str] = {
 
 
 def render_markdown() -> str:
-    """Renderiza a camada semântica em Markdown (dicionário de dados e prompt)."""
     lines = ["## Tabelas", ""]
     for table in TABLES:
         lines += [f"### `{table.name}`", "", table.description, ""]
@@ -246,8 +238,30 @@ def render_markdown() -> str:
     return "\n".join(lines) + "\n"
 
 
+def _is_obvious(description: str) -> bool:
+    return description.startswith(("Chave substituta", "FK para"))
+
+
+def render_prompt() -> str:
+    # versão enxuta para o prompt: o Groq gratuito limita tokens por minuto
+    lines = ["Tabelas:"]
+    for table in TABLES:
+        lines.append(
+            f"- {table.name}({', '.join(c.name for c in table.columns)}): {table.description}"
+        )
+        lines += [
+            f"    {c.name}: {c.description}"
+            for c in table.columns
+            if not _is_obvious(c.description)
+        ]
+    lines += ["", "Joins:", *(f"- {path}" for path in JOIN_PATHS)]
+    lines += ["", "Regras de negócio:", *(f"- {rule}" for rule in BUSINESS_RULES)]
+    genres = ", ".join(f"{pt}={en}" for pt, en in GENRE_TRANSLATIONS.items())
+    lines += ["", f"Gêneros (português=valor no banco): {genres}"]
+    return "\n".join(lines)
+
+
 def render_data_dictionary() -> str:
-    """Conteúdo completo de docs/dicionario_dados.md."""
     header = (
         "# Dicionário de dados — camada Gold CineData\n\n"
         "> Arquivo gerado por `scripts/gen_data_dictionary.py` a partir de\n"

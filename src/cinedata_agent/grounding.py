@@ -1,14 +1,4 @@
-"""Verificação de fundamentação: a resposta só pode citar o que veio do banco.
-
-Tolerância zero a alucinação, garantida por código e não por instrução ao modelo:
-
-- **Números:** todo número citado no texto precisa corresponder a um valor observado nos
-  resultados das ferramentas (ou na pergunta, ou numa constante documentada das regras de
-  negócio). Formatos brasileiros ("R$ 12,4 bilhões", "2.994,4", "52%") e arredondamentos
-  legítimos são aceitos; números derivados de cabeça (somas, diferenças) não: devem vir da SQL.
-- **Nomes próprios:** sequências de 2+ palavras capitalizadas (ex.: "Blue Beetle",
-  "Christopher Nolan") precisam aparecer nos dados observados ou na pergunta.
-"""
+"""Confere se a resposta só cita números e nomes que vieram do banco."""
 
 from __future__ import annotations
 
@@ -19,11 +9,13 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 
 _NUMBER = re.compile(
-    r"(?<![\w.,])(\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?)"
-    r"(\s*%|\s*(?:mil|milh(?:ão|ões|ao|oes)|bilh(?:ão|ões|ao|oes)|trilh(?:ão|ões|ao|oes))\b)?",
+    r"(?<![\w.,])(\d{1,3}(?:[. \u00a0\u202f]\d{3})+(?:,\d+)?|\d+(?:[.,]\d+)?)"
+    r"(\s*%|\s*(?:milh(?:ão|ões|ao|oes)|bilh(?:ão|ões|ao|oes)|trilh(?:ão|ões|ao|oes)"
+    r"|mil|mi|bi|tri)\b)?",
     re.IGNORECASE,
 )
-_SCALES = {"mil": 1e3, "milh": 1e6, "bilh": 1e9, "trilh": 1e12}
+# a ordem importa: "milh" antes de "mil" antes de "mi"
+_SCALES = {"milh": 1e6, "mil": 1e3, "mi": 1e6, "bilh": 1e9, "bi": 1e9, "trilh": 1e12, "tri": 1e12}
 
 # Nome próprio: 2+ palavras capitalizadas, admitindo conectivos e pontuação de títulos.
 _WORD = r"[A-ZÀ-Ý0-9][\w'\u2019À-ÿ.-]*:?"
@@ -47,8 +39,6 @@ _ALWAYS_ALLOWED = {
 
 @dataclass(frozen=True)
 class _Reading:
-    """Uma interpretação possível de um número escrito no texto."""
-
     value: float  # na unidade escrita (ex.: 12.4 para "12,4 bilhões")
     unit: float  # multiplicador da unidade (1e9 para bilhões; 0.01 para %)
     decimals: int  # casas decimais escritas (para aceitar arredondamento)
@@ -62,6 +52,7 @@ def _readings(token: str, suffix: str | None) -> list[_Reading]:
     elif suffix:
         units = [next(v for k, v in _SCALES.items() if suffix.startswith(k))]
 
+    token = re.sub(r"[ \u00a0\u202f]", "", token)  # "2 994,36" usa espaço como milhar
     interpretations: list[tuple[float, int]] = []
     if "," in token:  # padrão brasileiro: 1.234,5
         integer, decimal = token.replace(".", "").split(",")
@@ -92,7 +83,6 @@ def _matches(reading: _Reading, observed: float) -> bool:
 
 
 def collect_values(content: object) -> tuple[list[float], list[str]]:
-    """Achata o conteúdo das ferramentas em números e textos observados."""
     numbers: list[float] = []
     texts: list[str] = []
 
@@ -123,8 +113,6 @@ def _normalize(text: str) -> str:
 
 @dataclass(frozen=True)
 class Evidence:
-    """Tudo que a resposta pode citar: dados observados, pergunta e constantes permitidas."""
-
     numbers: list[float]
     texts: list[str]
 

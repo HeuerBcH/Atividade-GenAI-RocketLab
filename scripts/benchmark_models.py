@@ -55,6 +55,7 @@ async def main() -> int:
     parser.add_argument("--cases", default=DEFAULT_CASES)
     parser.add_argument("--reasoning", default=settings.reasoning_effort)
     parser.add_argument("--reserve", type=int, default=5, help="cota mínima a preservar")
+    parser.add_argument("--pause", type=float, default=0, help="segundos entre perguntas")
     args = parser.parse_args()
     os.environ.setdefault("PYDANTIC_AI_NO_BANNER", "1")
 
@@ -65,7 +66,7 @@ async def main() -> int:
 
     for model_name in _split(args.models):
         run_settings = settings.model_copy(
-            update={"models": [model_name], "reasoning_effort": args.reasoning}
+            update={"model_name": [model_name], "reasoning_effort": args.reasoning}
         )
         agent = build_agent(build_model(run_settings))
         for case in cases:
@@ -78,6 +79,8 @@ async def main() -> int:
             if remaining is not None and remaining - WORST_CASE_REQUESTS < args.reserve:
                 print(f"[PARADA] cota restante ({remaining}) abaixo da reserva ({args.reserve}).")
                 break
+            if results and args.pause:
+                await asyncio.sleep(args.pause)  # limite de tokens/minuto do Groq
             result = await run_case(agent, case, run_settings, model_name)
             results.append(result)
             status = "OK  " if result.passed else "FALHA"

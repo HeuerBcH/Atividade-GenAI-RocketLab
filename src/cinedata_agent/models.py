@@ -1,4 +1,4 @@
-"""Contratos de dados do agente: o que o LLM produz e o que a aplicação devolve."""
+"""Modelos de entrada e saída do agente."""
 
 from __future__ import annotations
 
@@ -8,11 +8,7 @@ from pydantic import BaseModel, Field
 
 
 class AgentOutput(BaseModel):
-    """Saída estruturada gerada pelo LLM.
-
-    Contém só texto: os dados vêm direto do banco (capturados pela ferramenta), para que o
-    modelo não possa alterar números ao reescrevê-los nem gastar tokens copiando tabelas.
-    """
+    # só texto: as linhas vão direto do banco para o usuário, o modelo não reescreve números
 
     answer: str = Field(
         min_length=20,
@@ -26,8 +22,6 @@ class AgentOutput(BaseModel):
 
 
 class TraceStep(BaseModel):
-    """Um passo do ciclo ReAct, para transparência e depuração."""
-
     kind: Literal["pensamento", "acao", "observacao", "erro"]
     content: str
 
@@ -40,6 +34,8 @@ class Usage(BaseModel):
 
 class AskResponse(BaseModel):
     question: str
+    session_id: str | None = None
+    cached: bool = False
     answer: str
     assumptions: list[str] = Field(default_factory=list)
     sql: str | None = Field(default=None, description="Última consulta executada com sucesso.")

@@ -1,8 +1,4 @@
-"""Execução segura e somente leitura de consultas na camada Gold.
-
-Toda SQL vinda do LLM passa por `run_query`, que aplica as três camadas de defesa descritas
-em `guardrails.py`, um timeout aplicado pelo próprio motor e um teto de linhas.
-"""
+"""Execução segura e somente leitura de consultas na camada Gold."""
 
 from __future__ import annotations
 
@@ -14,24 +10,48 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-from .db_setup import READ_PRAGMAS
 from .guardrails import validate_sql
 
-# Ações que o authorizer permite: só leitura. Todo o resto (INSERT, DELETE, ATTACH, PRAGMA,
-# CREATE, transações, ...) é negado pelo próprio SQLite, independentemente do texto da SQL.
+EXPECTED_TABLES = frozenset(
+    {
+        "dim_movies",
+        "fact_movies_performance",
+        "dim_genres",
+        "dim_people",
+        "dim_companies",
+        "dim_reviews",
+        "movie_reviews",
+        "bridge_movie_genre",
+        "bridge_movie_person",
+        "bridge_movie_company",
+    }
+)
+
+# não alteram o arquivo e deixam a consulta mais pesada ~8x mais rápida (docs/decisoes.md)
+READ_PRAGMAS = (
+    "PRAGMA temp_store = MEMORY",
+    "PRAGMA cache_size = -262144",  # 256 MiB
+    "PRAGMA mmap_size = 1073741824",  # 1 GiB
+)
+
+# o authorizer só libera leitura; INSERT, ATTACH, PRAGMA etc. o próprio SQLite nega
 _ALLOWED_ACTIONS: frozenset[int] = frozenset(
     {sqlite3.SQLITE_SELECT, sqlite3.SQLITE_READ, sqlite3.SQLITE_FUNCTION, sqlite3.SQLITE_RECURSIVE}
 )
 _BLOCKED_FUNCTIONS: frozenset[str] = frozenset({"load_extension"})
-_PROGRESS_STEPS = 10_000  # o handler de timeout roda a cada N instruções da VM do SQLite
+_PROGRESS_STEPS = 10_000
+
+
+class DatabaseUnavailable(RuntimeError):
+    pass
 
 
 class QueryError(RuntimeError):
-    """Erro de execução com mensagem destinada ao LLM (para autocorreção)."""
+    """A mensagem volta para o LLM corrigir a consulta."""
 
 
 class QueryTimeoutError(QueryError):
-    """A consulta excedeu o tempo máximo."""
+    pass
 
 
 class QueryResult(BaseModel):
@@ -54,18 +74,40 @@ def _authorizer(action: int, arg1: str | None, arg2: str | None, *_: object) -> 
     return sqlite3.SQLITE_OK
 
 
+def _connect(db_path: Path) -> sqlite3.Connection:
+    if not db_path.is_file():
+        raise DatabaseUnavailable(
+            f"Banco não encontrado em {db_path}. Baixe o cinerocket.db da atividade e salve "
+            "em data/cinerocket.db (ou ajuste DB_PATH no .env)."
+        )
+    # immutable=1 ignora o arquivo -wal, então ele precisa estar vazio para não perder dados
+    wal = db_path.with_name(db_path.name + "-wal")
+    if wal.is_file() and wal.stat().st_size > 0:
+        raise DatabaseUnavailable(
+            f"{wal.name} tem transações pendentes; abra o banco uma vez em modo escrita."
+        )
+    return sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro&immutable=1", uri=True)
+
+
+def check_database(db_path: Path) -> None:
+    """Falha cedo, com mensagem clara, se o arquivo não for a camada Gold esperada."""
+    conn = _connect(db_path)
+    try:
+        rows = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table'").fetchall()
+    except sqlite3.DatabaseError as exc:
+        raise DatabaseUnavailable(f"{db_path.name} não é um banco SQLite válido: {exc}") from exc
+    finally:
+        conn.close()
+    if missing := EXPECTED_TABLES - {name for (name,) in rows}:
+        raise DatabaseUnavailable(f"{db_path.name} não tem as tabelas {sorted(missing)}.")
+
+
 @contextmanager
 def readonly_connection(db_path: Path) -> Iterator[sqlite3.Connection]:
-    """Conexão somente leitura, com PRAGMAs de desempenho e o authorizer já instalado.
-
-    Uma conexão por consulta: simples, segura entre threads (FastAPI) e barata, pois o
-    `mmap` reaproveita o cache de páginas do sistema operacional.
-    """
-    if not db_path.is_file():
-        raise FileNotFoundError(f"Banco não encontrado em {db_path}.")
-    conn = sqlite3.connect(f"file:{db_path.as_posix()}?mode=ro", uri=True)
+    # uma conexão por consulta: segura entre threads e barata por causa do mmap
+    conn = _connect(db_path)
     try:
-        for pragma in READ_PRAGMAS:  # antes do authorizer, que bloqueia PRAGMA
+        for pragma in READ_PRAGMAS:  # antes do authorizer, senão o PRAGMA é bloqueado
             conn.execute(pragma)
         conn.set_authorizer(_authorizer)
         yield conn
@@ -87,13 +129,6 @@ def run_query(
     timeout_seconds: float,
     params: Sequence[object] = (),
 ) -> QueryResult:
-    """Valida e executa a SQL, devolvendo no máximo `max_rows` linhas.
-
-    Raises:
-        GuardrailError: SQL rejeitada antes da execução.
-        QueryTimeoutError: tempo esgotado.
-        QueryError: erro do SQLite (coluna inexistente, operação não autorizada, ...).
-    """
     statement = validate_sql(sql)
     start = time.perf_counter()
     deadline = start + timeout_seconds
@@ -104,7 +139,7 @@ def run_query(
             cursor = conn.execute(statement, params)
             fetched = cursor.fetchmany(max_rows + 1)
         except sqlite3.Error as exc:
-            # A classe da exceção varia (OperationalError, DatabaseError); a mensagem não.
+            # a classe da exceção varia (OperationalError/DatabaseError), a mensagem não
             message = str(exc).lower()
             if "interrupted" in message:
                 raise QueryTimeoutError(

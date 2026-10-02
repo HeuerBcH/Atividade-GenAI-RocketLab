@@ -1,15 +1,8 @@
-"""Agente Text-to-SQL (Pydantic AI, ciclo ReAct) sobre a camada Gold.
-
-Componentes de um agente, na terminologia vista em aula:
-- **Persona e instruções:** `prompts/system_prompt.md` + camada semântica (`prompt.py`).
-- **Planejamento:** ciclo ReAct conduzido pelo próprio modelo via tool calling.
-- **Ferramentas:** `buscar_valores` e `executar_sql` (2 ferramentas, bem abaixo do limite
-  prático de ~5 a partir do qual o desempenho do ReAct cai).
-- **Memória:** `message_history` repassado entre perguntas da mesma conversa.
-"""
+"""Agente Text-to-SQL (Pydantic AI) que responde perguntas sobre a camada Gold."""
 
 from __future__ import annotations
 
+import asyncio
 import json
 import time
 from dataclasses import dataclass, field
@@ -17,6 +10,8 @@ from datetime import date
 from pathlib import Path
 from typing import Literal
 
+from groq import AsyncGroq
+from openai import AsyncOpenAI
 from pydantic_ai import (
     Agent,
     ModelRetry,
@@ -53,19 +48,22 @@ from .models import AgentOutput, AskResponse, TraceStep, Usage
 from .prompt import build_instructions
 from .semantic_layer import GENRE_TRANSLATIONS, SEARCHABLE_FIELDS, render_markdown
 
-PREVIEW_ROWS = 15  # linhas da amostra devolvida ao LLM (a tabela completa vai ao usuário)
-MAX_CELL_CHARS = 120  # textos longos (sinopses) são cortados na amostra
+PREVIEW_ROWS = 10
+MIN_ANSWER_CHARS = 20
+GROQ_MAX_RETRIES = 3
+MAX_CELL_CHARS = 120
 SEARCH_LIMIT = 15
 MAX_TRACE_CHARS = 1500
 
 SearchField = Literal["filme", "pessoa", "produtora", "genero", "status"]
+TOOL_NAMES = frozenset({"executar_sql", "buscar_valores"})
+
+# Podem aparecer na resposta sem estar no resultado (ex.: "Ficção Científica").
+_ALLOWED_TERMS = (*GENRE_TRANSLATIONS, *GENRE_TRANSLATIONS.values(), "CineData Analyst")
 
 
 class AgentError(RuntimeError):
-    """Falha ao responder; a mensagem é segura para exibir ao usuário.
-
-    `detail` e `steps` guardam a causa técnica e o trace até a falha (para logs/depuração).
-    """
+    """Mensagem amigável para o usuário; `detail` e `steps` ficam para depuração."""
 
     def __init__(self, message: str, *, detail: str = "", steps: list[TraceStep] | None = None):
         super().__init__(message)
@@ -74,13 +72,11 @@ class AgentError(RuntimeError):
 
 
 class ConfigurationError(AgentError):
-    """Configuração ausente ou inválida (ex.: chave da API)."""
+    pass
 
 
 @dataclass
 class AgentDeps:
-    """Dependências de uma execução do agente (injetadas nas ferramentas)."""
-
     db_path: Path
     max_rows: int
     timeout_seconds: float
@@ -95,7 +91,6 @@ class AgentDeps:
         )
 
 
-# ------------------------------------------------------------------------------ ferramentas
 def _clip(value: object) -> object:
     if isinstance(value, str) and len(value) > MAX_CELL_CHARS:
         return value[:MAX_CELL_CHARS] + "..."
@@ -117,7 +112,7 @@ def executar_sql(ctx: RunContext[AgentDeps], sql: str) -> dict[str, object]:
         raise ModelRetry(str(exc)) from exc
     deps.results.append(result)
 
-    warnings: list[str] = []
+    warnings = []
     if not result.rows:
         warnings.append(
             "Nenhuma linha retornada. Revise filtros e valores (use buscar_valores para nomes) "
@@ -145,19 +140,18 @@ def buscar_valores(ctx: RunContext[AgentDeps], campo: SearchField, termo: str) -
     """
     table, column, extra = SEARCHABLE_FIELDS[campo]
     selected = f"{column}, {extra}" if extra else column
-    # Identificadores vêm da allowlist; o termo vai como parâmetro (sem risco de injeção).
+    # tabela/coluna vêm da allowlist e o termo vai como parâmetro, então não há injeção
     sql = (
         f"SELECT DISTINCT {selected} FROM {table} "
         f"WHERE {column} LIKE ? ESCAPE '\\' "
         f"ORDER BY ({column} = ? COLLATE NOCASE) DESC, length({column}) LIMIT {SEARCH_LIMIT}"
     )
     escaped = termo.strip().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-    deps = ctx.deps
     result = run_query(
         sql,
-        db_path=deps.db_path,
+        db_path=ctx.deps.db_path,
         max_rows=SEARCH_LIMIT,
-        timeout_seconds=deps.timeout_seconds,
+        timeout_seconds=ctx.deps.timeout_seconds,
         params=(f"%{escaped}%", termo.strip()),
     )
     if not result.rows:
@@ -165,32 +159,28 @@ def buscar_valores(ctx: RunContext[AgentDeps], campo: SearchField, termo: str) -
     return {"colunas": result.columns, "valores": result.rows}
 
 
-TOOL_NAMES: frozenset[str] = frozenset({"executar_sql", "buscar_valores"})
-
-# Termos que podem aparecer na resposta sem estar nos resultados (nomes de gêneros em PT etc.).
-_ALLOWED_TERMS: tuple[str, ...] = (
-    *GENRE_TRANSLATIONS,
-    *GENRE_TRANSLATIONS.values(),
-    "CineData Analyst",
-)
-
-
-# ------------------------------------------------------------------------- modelo e agente
 def _groq_models(settings: Settings, api_key: str) -> list[Model]:
-    provider = GroqProvider(api_key=api_key)
+    # O gratuito limita 8 mil tokens/minuto e uma pergunta gasta mais que isso. Num 429 o SDK
+    # espera o tempo que o Groq pede e tenta de novo; um 429 não consome tokens nem cota diária.
+    # o SDK do Groq já acrescenta /openai/v1 ao caminho
+    base = settings.base_url.removesuffix("/openai/v1")
+    client = AsyncGroq(api_key=api_key, base_url=base, max_retries=GROQ_MAX_RETRIES)
+    provider = GroqProvider(groq_client=client)
     model_settings = GroqModelSettings(
         temperature=settings.temperature,
         timeout=settings.model_timeout_seconds,
         parallel_tool_calls=False,
     )
     if settings.reasoning_effort != "none":
-        # Só para modelos com raciocínio; nos demais o parâmetro seria rejeitado pela API.
+        # modelos sem raciocínio rejeitam esse parâmetro
         model_settings["groq_reasoning_effort"] = settings.reasoning_effort
     return [GroqModel(n, provider=provider, settings=model_settings) for n in settings.model_chain]
 
 
 def _openrouter_models(settings: Settings, api_key: str) -> list[Model]:
-    provider = OpenRouterProvider(api_key=api_key)
+    # no OpenRouter as requisições que falham contam na cota de 50/dia: sem novas tentativas
+    client = AsyncOpenAI(base_url=settings.base_url, api_key=api_key, max_retries=0)
+    provider = OpenRouterProvider(openai_client=client)
     model_settings = OpenRouterModelSettings(
         temperature=settings.temperature,
         timeout=settings.model_timeout_seconds,
@@ -203,11 +193,6 @@ def _openrouter_models(settings: Settings, api_key: str) -> list[Model]:
 
 
 def build_model(settings: Settings) -> Model:
-    """Cadeia de modelos do provedor configurado, com fallback automático em erro (ex.: 429).
-
-    `parallel_tool_calls=False` pede ao modelo que não responda na mesma rodada em que consulta;
-    como alguns modelos ignoram o pedido, a garantia real fica no validador de respostas.
-    """
     if settings.api_key is None:
         variable = f"{settings.llm_provider.upper()}_API_KEY"
         raise ConfigurationError(f"{variable} não configurada (veja .env.example).")
@@ -218,13 +203,12 @@ def build_model(settings: Settings) -> Model:
 
 
 def _instructions() -> str:
-    # Sem parâmetros de propósito: o Pydantic AI injeta RunContext em funções que recebem argumento.
+    # sem parâmetros: se tiver, o Pydantic AI passa o RunContext no primeiro argumento
     return build_instructions()
 
 
 def _evidence(messages: list[ModelMessage]) -> Evidence:
-    """O que a resposta pode citar: resultados das ferramentas, perguntas e fatos documentados."""
-    numbers, texts = collect_values(render_markdown())  # fatos verificados da camada semântica
+    numbers, texts = collect_values(render_markdown())
     for message in messages:
         if not isinstance(message, ModelRequest):
             continue
@@ -234,19 +218,12 @@ def _evidence(messages: list[ModelMessage]) -> Evidence:
                 found_numbers, found_texts = collect_values(part.content)
                 numbers += found_numbers
                 texts += found_texts
-    numbers.append(float(date.today().year))  # o ano corrente consta das instruções
+    numbers.append(float(date.today().year))
     return Evidence(numbers=numbers, texts=texts)
 
 
-def _validate_answer(ctx: RunContext[AgentDeps], output: AgentOutput) -> AgentOutput:
-    """Tolerância zero a alucinação: rejeita (ModelRetry) respostas não fundamentadas.
-
-    1. Resposta antes de observar qualquer resultado (o modelo enviou a consulta e a resposta
-       na mesma rodada e inventou os dados). Se já observou em rodada anterior, a resposta
-       está fundamentada mesmo que ele repita a consulta por redundância.
-    2. Número ou nome próprio que não aparece nos dados observados, na pergunta ou nos fatos
-       documentados da camada semântica (ver `grounding.py`).
-    """
+def _validate_answer(ctx: RunContext[AgentDeps], output: AgentOutput | str) -> AgentOutput | str:
+    """Rejeita respostas dadas antes de ver os dados ou que citam algo que não está neles."""
     messages = ctx.messages
     last = max((i for i, m in enumerate(messages) if isinstance(m, ModelResponse)), default=None)
     if last is not None:
@@ -259,6 +236,8 @@ def _validate_answer(ctx: RunContext[AgentDeps], output: AgentOutput) -> AgentOu
             if isinstance(m, ModelRequest)
             for p in m.parts
         )
+        # Alguns modelos mandam a consulta e a resposta juntas (e inventam o resultado).
+        # Se já viram dados numa rodada anterior, repetir a consulta não é problema.
         if called_tools and not observed_before:
             raise ModelRetry(
                 "Você enviou a resposta final junto com uma chamada de ferramenta, antes de ver "
@@ -266,8 +245,10 @@ def _validate_answer(ctx: RunContext[AgentDeps], output: AgentOutput) -> AgentOu
                 "usando apenas números que aparecem nele."
             )
 
+    if isinstance(output, str) and len(output.strip()) < MIN_ANSWER_CHARS:
+        raise ModelRetry("Responda ao usuário com o resultado da consulta, em 2 a 5 frases.")
     evidence = _evidence(messages)
-    text = " ".join([output.answer, *output.assumptions])
+    text = output if isinstance(output, str) else " ".join([output.answer, *output.assumptions])
     numbers = ungrounded_numbers(text, evidence)
     names = ungrounded_names(text, evidence, allowed_terms=_ALLOWED_TERMS)
     if numbers or names:
@@ -281,12 +262,14 @@ def _validate_answer(ctx: RunContext[AgentDeps], output: AgentOutput) -> AgentOu
     return output
 
 
-def build_agent(model: Model) -> Agent[AgentDeps, AgentOutput]:
+def build_agent(model: Model) -> Agent[AgentDeps, AgentOutput | str]:
     agent = Agent(
         model,
         name="cinedata-analyst",
         deps_type=AgentDeps,
-        output_type=AgentOutput,
+        # aceitar texto deixa o tool_choice em "auto"; com saída só estruturada o Groq exige
+        # uma ferramenta em toda rodada e o gpt-oss falha com tool_use_failed ao responder
+        output_type=[AgentOutput, str],
         instructions=_instructions,
         tools=[Tool(buscar_valores, max_retries=2), Tool(executar_sql, max_retries=2)],
         retries=3,
@@ -295,7 +278,6 @@ def build_agent(model: Model) -> Agent[AgentDeps, AgentOutput]:
     return agent
 
 
-# ------------------------------------------------------------------------------ execução
 def _short(text: str) -> str:
     return text if len(text) <= MAX_TRACE_CHARS else text[:MAX_TRACE_CHARS] + "..."
 
@@ -312,8 +294,8 @@ def _observation(content: object) -> str:
 
 
 def extract_trace(messages: list[ModelMessage]) -> list[TraceStep]:
-    """Reconstrói os passos do ciclo ReAct a partir das mensagens trocadas."""
-    steps: list[TraceStep] = []
+    """Monta os passos do ReAct (pensamento, ação, observação, erro) a partir das mensagens."""
+    steps = []
     for message in messages:
         if isinstance(message, ModelResponse):
             for part in message.parts:
@@ -353,27 +335,32 @@ def _describe(exc: BaseException) -> str:
 
 
 async def ask(
-    agent: Agent[AgentDeps, AgentOutput],
+    agent: Agent[AgentDeps, AgentOutput | str],
     question: str,
     *,
     deps: AgentDeps,
     max_requests: int,
     message_history: list[ModelMessage] | None = None,
+    timeout_seconds: float | None = None,
 ) -> tuple[AskResponse, list[ModelMessage]]:
-    """Responde a uma pergunta e devolve a resposta + o histórico atualizado da conversa.
-
-    Raises:
-        AgentError: com mensagem amigável quando não for possível responder.
-    """
+    """Responde a pergunta e devolve também as mensagens novas desta rodada."""
     start = time.perf_counter()
     with capture_run_messages() as captured:
         try:
-            result = await agent.run(
+            run = agent.run(
                 question,
                 deps=deps,
                 message_history=message_history,
                 usage_limits=UsageLimits(request_limit=max_requests),
             )
+            result = await asyncio.wait_for(run, timeout=timeout_seconds)
+        except TimeoutError as exc:
+            raise AgentError(
+                f"A pergunta passou de {timeout_seconds:.0f} s sem resposta e foi interrompida. "
+                "Tente de novo em instantes ou reformule de forma mais direta.",
+                detail="TimeoutError",
+                steps=extract_trace(captured[len(message_history or []) :]),
+            ) from exc
         except (
             UsageLimitExceeded,
             FallbackExceptionGroup,
@@ -387,17 +374,19 @@ async def ask(
             ) from exc
 
     final = deps.results[-1] if deps.results else None
+    output = result.output
+    if isinstance(output, str):
+        output = AgentOutput(answer=output.strip())
     usage = result.usage
-    new_messages = result.new_messages()
     response = AskResponse(
         question=question,
-        answer=result.output.answer,
-        assumptions=result.output.assumptions,
+        answer=output.answer,
+        assumptions=output.assumptions,
         sql=final.sql if final else None,
         columns=final.columns if final else [],
         rows=final.rows if final else [],
         truncated=final.truncated if final else False,
-        steps=extract_trace(new_messages),
+        steps=extract_trace(result.new_messages()),
         model=result.response.model_name,
         usage=Usage(
             requests=usage.requests,
@@ -406,4 +395,4 @@ async def ask(
         ),
         latency_ms=round((time.perf_counter() - start) * 1000, 1),
     )
-    return response, result.all_messages()
+    return response, result.new_messages()

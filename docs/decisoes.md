@@ -12,7 +12,7 @@ Cada decisão registra o contexto, a escolha e a evidência que a sustenta.
   será definida por benchmark na Fase 3 (ver D4, a preencher).
 - **Entregável: módulo backend FastAPI + CLI**, ambos sobre o mesmo pacote `cinedata_agent`.
 
-## D2 — Banco: preparação de leitura sem alterar dados da camada Gold
+## D2 — Banco: preparação com índices *(substituída pela D11)*
 
 **Contexto.** As perguntas de elenco e equipe juntam `bridge_movie_person` (745 mil linhas) com
 `dim_people` (425 mil) usando chaves texto de 64 caracteres. Na primeira medição, a pergunta
@@ -172,3 +172,21 @@ exibida vem sempre do banco, nunca do texto do modelo.
 
 **Limitação conhecida:** nomes de uma única palavra ("Avatar") não são verificáveis com segurança
 por texto livre e não são checados; o número associado a eles, sim.
+
+## D11 — Banco original intacto, aberto com `immutable=1`
+
+Substitui a D2. Comparando com a abordagem de um colega de turma, medimos a consulta mais pesada
+(dupla ator–diretor) no **arquivo original, sem índices**, aberto com `mode=ro&immutable=1` e com
+os PRAGMAs de leitura: **7,3 s**, contra ~5–7 s na cópia indexada. Quase todo o ganho vinha dos
+PRAGMAs, que não alteram o arquivo.
+
+**Decisão.** Usar o `cinerocket.db` exatamente como distribuído:
+
+- O enunciado pede para "baixar o arquivo, colocá-lo na pasta e conectar": nenhum passo extra.
+  O `prepare_db.py` era um passo que o avaliador poderia pular, deixando o projeto num estado
+  diferente do testado.
+- O arquivo não muda (SHA-256 `410f5beef6ab9fb3...` antes e depois da suíte de testes) e evita
+  ~220 MB a mais.
+- `immutable=1` dispensa travas e arquivos auxiliares. Como ele ignora o `-wal`, a conexão recusa
+  abrir se houver um `-wal` com transações pendentes (mensagem clara em vez de dado perdido).
+- A validação (arquivo existe, é SQLite, tem as 10 tabelas) roda **automaticamente** ao iniciar.

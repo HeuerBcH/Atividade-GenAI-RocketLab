@@ -1,8 +1,4 @@
-"""Configuração central da aplicação, lida de variáveis de ambiente e do `.env`.
-
-Todo valor ajustável (caminhos, chaves, parâmetros do modelo) passa por aqui, para que
-nenhum módulo leia `os.environ` diretamente.
-"""
+"""Configuração central da aplicação, lida de variáveis de ambiente e do `.env`."""
 
 from __future__ import annotations
 
@@ -18,9 +14,14 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 Provider = Literal["groq", "openrouter"]
 ReasoningEffort = Literal["none", "low", "medium", "high"]
 
-# Cadeias padrão por provedor (fallback automático em erro/429). Ver docs/decisoes.md (D4, D9).
+# fallback automático em erro/429, ver docs/decisoes.md (D4 e D9)
+DEFAULT_BASE_URLS: dict[Provider, str] = {
+    "groq": "https://api.groq.com/openai/v1",
+    "openrouter": "https://openrouter.ai/api/v1",
+}
+
 DEFAULT_MODELS: dict[Provider, list[str]] = {
-    "groq": ["openai/gpt-oss-120b", "llama-3.3-70b-versatile"],
+    "groq": ["openai/gpt-oss-120b", "openai/gpt-oss-20b"],
     "openrouter": [
         "nvidia/nemotron-3-ultra-550b-a55b:free",
         "nvidia/nemotron-3.5-lightning:free",
@@ -37,19 +38,18 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # --- Provedor de LLM
     llm_provider: Provider = "groq"
     groq_api_key: SecretStr | None = Field(default=None, description="Chave do Groq (gsk_...).")
     openrouter_api_key: SecretStr | None = Field(
         default=None, description="Chave da API do OpenRouter (sk-or-v1-...)."
     )
-    openrouter_base_url: str = "https://openrouter.ai/api/v1"
-    groq_base_url: str = "https://api.groq.com/openai/v1"
 
-    # --- Modelo e parâmetros de geração
-    models: Annotated[list[str], NoDecode] = Field(
+    model_name: Annotated[list[str], NoDecode] = Field(
         default_factory=list,
-        description="Cadeia de fallback (o 1º é o principal). Vazia = padrão do provedor.",
+        description="Modelo, ou cadeia de fallback separada por vírgulas. Vazio = padrão.",
+    )
+    model_base_url: str | None = Field(
+        default=None, description="URL da API compatível com OpenAI. Vazio = padrão do provedor."
     )
     temperature: float = Field(
         default=0.0, ge=0, le=2, description="0 = saída determinística (adequado para SQL)."
@@ -61,8 +61,10 @@ class Settings(BaseSettings):
         default=5, ge=1, description="Teto de chamadas ao LLM por pergunta (protege a cota)."
     )
     model_timeout_seconds: float = Field(default=90.0, gt=0)
+    question_timeout_seconds: float = Field(
+        default=180.0, gt=0, description="Tempo máximo para responder uma pergunta inteira."
+    )
 
-    # --- Banco
     db_path: Path = Field(
         default=Path("data/cinerocket.db"),
         description="Banco SQLite da camada Gold; caminhos relativos partem da raiz do projeto.",
@@ -72,10 +74,10 @@ class Settings(BaseSettings):
     )
     max_rows: int = Field(default=1000, ge=1, description="Teto de linhas devolvidas por consulta.")
 
-    @field_validator("models", mode="before")
+    @field_validator("model_name", mode="before")
     @classmethod
     def _split_models(cls, value: object) -> object:
-        # No .env a cadeia é escrita como lista separada por vírgulas.
+        # no .env a lista vem separada por vírgulas
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
@@ -83,12 +85,15 @@ class Settings(BaseSettings):
     @field_validator("db_path")
     @classmethod
     def _resolve_relative_to_root(cls, value: Path) -> Path:
-        # Torna o caminho independente do diretório de onde o comando foi executado.
         return value if value.is_absolute() else PROJECT_ROOT / value
 
     @property
     def model_chain(self) -> list[str]:
-        return self.models or DEFAULT_MODELS[self.llm_provider]
+        return self.model_name or DEFAULT_MODELS[self.llm_provider]
+
+    @property
+    def base_url(self) -> str:
+        return (self.model_base_url or DEFAULT_BASE_URLS[self.llm_provider]).rstrip("/")
 
     @property
     def api_key(self) -> SecretStr | None:

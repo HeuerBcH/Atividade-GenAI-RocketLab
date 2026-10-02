@@ -28,6 +28,9 @@ OBSERVED = Evidence(
         "O índice é 2994.36, seguido de 2.680,6.",
         "A receita foi de R$ 12,4 bilhões.",
         "A receita foi de R$ 12 bilhões.",
+        "A receita foi de R$ 12,39 bi.",
+        "Blue Beetle tem popularidade 2 994,36.",
+        "Faturou 12,4bi no total.",
         "A receita foi de R$ 12.390.136.500,54.",
         "Notas 7,8 e 8,2 no IMDb.",
         "Margem de 52% (ou 52,34%).",
@@ -47,6 +50,7 @@ def test_accepts_numbers_present_in_the_data(answer: str) -> None:
     [
         ("Avatar tem popularidade 10.000.", ["10.000"]),
         ("A receita foi de R$ 15 bilhões.", ["15 bilhões"]),
+        ("A receita foi de R$ 99 bi.", ["99 bi"]),
         ("Nota 9,1 no IMDb.", ["9,1"]),
         ("Juntos, os dois somam 5674,95.", ["5674,95"]),  # derivado de cabeça: deve vir da SQL
         ("Margem de 60%.", ["60%"]),

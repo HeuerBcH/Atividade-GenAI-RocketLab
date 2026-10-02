@@ -4,14 +4,15 @@ import sqlite3
 
 import pytest
 
-from cinedata_agent import db_setup, semantic_layer
+from cinedata_agent import semantic_layer
 from cinedata_agent.config import PROJECT_ROOT
+from cinedata_agent.db import EXPECTED_TABLES
 
 DESCRIBED = {(t.name, c.name) for t in semantic_layer.TABLES for c in t.columns}
 
 
 def test_covers_exactly_the_expected_tables() -> None:
-    assert {t.name for t in semantic_layer.TABLES} == db_setup.EXPECTED_TABLES
+    assert {t.name for t in semantic_layer.TABLES} == EXPECTED_TABLES
 
 
 def test_every_column_has_a_description() -> None:
@@ -29,7 +30,7 @@ def test_committed_data_dictionary_is_up_to_date() -> None:
 def test_columns_match_real_database(gold_conn: sqlite3.Connection) -> None:
     actual = {
         (table, row[1])
-        for table in db_setup.EXPECTED_TABLES
+        for table in EXPECTED_TABLES
         for row in gold_conn.execute(f"PRAGMA table_info({table})")
     }
     assert actual - DESCRIBED == set(), "colunas do banco sem descrição"
