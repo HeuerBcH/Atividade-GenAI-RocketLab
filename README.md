@@ -37,6 +37,36 @@ python -m cinedata_agent "Qual dupla ator-diretor mais trabalhou junta?" --trace
 python -m cinedata_agent "..." --json                                              # resposta completa
 ```
 
+## Interface de chat (Streamlit)
+
+```bash
+streamlit run app/streamlit_app.py              # abre http://localhost:8501
+```
+
+Chat com memória da conversa, perguntas de exemplo por categoria, tabela de resultados, gráfico
+automático quando o resultado é um ranking ou uma série por ano, e a SQL e os passos do agente
+(ReAct) em seções expansíveis.
+
+## API (FastAPI)
+
+```bash
+uvicorn cinedata_agent.api:app --port 8000      # documentação interativa em http://localhost:8000/docs
+```
+
+| Rota | O que faz |
+|---|---|
+| `POST /ask` | `{"question": "...", "session_id": "opcional"}` → resposta, premissas, SQL, linhas e passos do ReAct |
+| `DELETE /sessions/{id}` | apaga a memória de uma conversa |
+| `GET /health` | provedor, modelos e versão do prompt em uso |
+| `GET /schema` | tabelas, colunas e regras de negócio |
+| `GET /examples` | perguntas de exemplo |
+
+Com Docker (o banco entra como volume somente leitura):
+
+```bash
+docker compose up --build                       # API em http://localhost:8000
+```
+
 ## Estrutura
 
 ```
@@ -49,7 +79,10 @@ src/cinedata_agent/      pacote principal
   grounding.py           verificação anti-alucinação (números e nomes precisam estar nos dados)
   prompts/               system prompt versionado
   evaluation.py          comparação com as SQLs de referência (execution accuracy)
+  service.py             memória por sessão, cache de respostas e log de execuções
+  api.py                 API FastAPI
 eval/golden.yaml         22 perguntas de avaliação com SQL de referência
+app/streamlit_app.py     interface de chat
 scripts/                 utilitários (preparar banco, cota, benchmark de modelos)
 tests/                   testes automatizados
 docs/decisoes.md         decisões técnicas e evidências

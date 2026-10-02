@@ -190,3 +190,18 @@ PRAGMAs, que não alteram o arquivo.
 - `immutable=1` dispensa travas e arquivos auxiliares. Como ele ignora o `-wal`, a conexão recusa
   abrir se houver um `-wal` com transações pendentes (mensagem clara em vez de dado perdido).
 - A validação (arquivo existe, é SQLite, tem as 10 tabelas) roda **automaticamente** ao iniciar.
+
+## D12 — `gpt-oss-120b` no Groq: respostas em texto e margem de chamadas
+
+Observado com a resposta HTTP bruta (2026-10-01):
+
+- Com saída só estruturada, o Pydantic AI exige uma ferramenta em toda rodada; o `gpt-oss` quer
+  responder em texto e o Groq devolve `400 tool_use_failed`. **Decisão:** aceitar a resposta final
+  também como texto (`output_type=[AgentOutput, str]`). O texto passa pela mesma verificação de
+  fundamentação (D10), e um JSON escrito como texto é convertido no formato estruturado.
+- Às vezes o modelo escreve a resposta no canal de raciocínio e encerra com `content=''`. Ele se
+  recupera na rodada seguinte, mas isso consome chamadas. **Decisão:** teto de 8 chamadas por
+  pergunta (era 5).
+- Limites do plano gratuito por modelo: 1.000 requisições/dia, **8 mil tokens/minuto** e **200 mil
+  tokens/dia**. Uma pergunta usa ~3,7 mil tokens por chamada; num 429 o SDK espera o tempo pedido
+  pelo Groq e tenta de novo (até 3 vezes).

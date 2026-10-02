@@ -21,7 +21,7 @@ DEFAULT_BASE_URLS: dict[Provider, str] = {
 }
 
 DEFAULT_MODELS: dict[Provider, list[str]] = {
-    "groq": ["openai/gpt-oss-120b", "openai/gpt-oss-20b"],
+    "groq": ["openai/gpt-oss-120b"],
     "openrouter": [
         "nvidia/nemotron-3-ultra-550b-a55b:free",
         "nvidia/nemotron-3.5-lightning:free",
@@ -58,7 +58,7 @@ class Settings(BaseSettings):
         default="none", description="Nível de raciocínio pedido aos modelos que o suportam."
     )
     max_requests_per_question: int = Field(
-        default=5, ge=1, description="Teto de chamadas ao LLM por pergunta (protege a cota)."
+        default=8, ge=1, description="Teto de chamadas ao LLM por pergunta (protege a cota)."
     )
     model_timeout_seconds: float = Field(default=90.0, gt=0)
     question_timeout_seconds: float = Field(

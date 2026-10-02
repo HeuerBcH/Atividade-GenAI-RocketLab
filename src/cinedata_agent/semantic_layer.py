@@ -142,14 +142,12 @@ JOIN_PATHS: tuple[str, ...] = (
     "no mesmo sk_movie_id, cada lado com seu dim_people filtrado por tipo_pessoa",
 )
 
-# Constantes das convenções: usadas no prompt e nas SQLs de referência (eval/golden.yaml).
+# usadas no prompt e nas SQLs do eval/golden.yaml
 MIN_RATING_VOTES = 100
 MIN_USER_REVIEWS = 3
 
 BUSINESS_RULES: tuple[str, ...] = (
-    # Precedência
     "Critério explícito na pergunta SEMPRE prevalece sobre as convenções padrão abaixo.",
-    # Finanças
     "'Receita', 'faturamento' e 'bilheteria' são sinônimos: receita_brl / receita_usd.",
     "Moeda padrão: R$ (colunas *_brl). Use *_usd só se a pergunta pedir dólar. "
     "Nunca converta moeda manualmente: o câmbio é histórico e varia por filme.",
@@ -163,24 +161,24 @@ BUSINESS_RULES: tuple[str, ...] = (
     "avise o usuário quando aparecerem no topo.",
     "Margem média = AVG(lucro_brl / receita_brl). Ela é muito sensível a outliers (receitas "
     "ínfimas geram margens de -50.000x): ao responder, avise que a média é distorcida por eles.",
-    # Notas e popularidade
     "'Nota' sem especificação = nota_imdb. 'Mais popular' = maior popularidade.",
-    f"Ao comparar ou ranquear notas sem critério na pergunta, exija qtd_imdb >= "
-    f"{MIN_RATING_VOTES} e, se usar TMDB, qtd_tmdb >= {MIN_RATING_VOTES}.",
-    f"Comparações com a nota dos usuários (dim_reviews) exigem qtd_avaliacoes_usuarios >= "
-    f"{MIN_USER_REVIEWS}, salvo critério na pergunta.",
+    f"Divergência entre notas = ABS(nota_a - nota_b), com OBRIGATORIAMENTE: ambas não nulas, "
+    f"qtd_imdb >= {MIN_RATING_VOTES} se usar IMDb, qtd_tmdb >= {MIN_RATING_VOTES} se usar TMDB e "
+    f"qtd_avaliacoes_usuarios >= {MIN_USER_REVIEWS} se usar a nota dos usuários (sem isso o topo "
+    "é só ruído de notas zeradas).",
+    f"Ranking de filmes individuais por nota ('melhor filme') exige qtd_imdb >= "
+    f"{MIN_RATING_VOTES}. Médias agregadas (por ano, diretor, gênero) usam todos os filmes com "
+    "nota não nula, sem mínimo de votos.",
     "'Mais avaliados pelos usuários' = maior qtd_avaliacoes_usuarios (há muitos empates).",
-    "Divergência entre notas = ABS(nota_a - nota_b), ambas não nulas.",
-    # Tempo
     "'Últimos N anos' = data_lancamento entre date('now', '-N years') e date('now').",
-    "Filmes com data futura ou status diferente de 'Lançado' ainda não foram lançados.",
-    # Entidades
+    "Não filtre status_filme por padrão: todo o catálogo conta. Só use status_filme = "
+    "'Lançado' se a pergunta restringir a filmes já lançados.",
     "Gêneros estão em inglês: traduza o termo do usuário (ex.: Ação -> Action, Ficção "
     "Científica -> Science Fiction, Comédia -> Comedy, Terror -> Horror).",
     "Agrupe por chaves sk_* (não por nome/título, que se repetem) e exiba nomes legíveis.",
     "Contagens de filmes por entidade usam COUNT(DISTINCT sk_movie_id).",
     "Nunca exiba colunas sk_* nem hashes no resultado.",
-    # Qualidade de dados conhecida (não corrigir; avisar o usuário quando afetar a resposta)
+    # problemas conhecidos dos dados: avisar, não corrigir
     "Popularidade corrompida em 4 filmes, com valor igual a um ano (ex.: 'La Fellinette' = "
     "2020.0, 'Battipaglia 1969' = 1969.0). NÃO os exclua da consulta: mantenha-os no "
     "resultado e, se aparecerem no topo, avise na resposta que é erro da fonte.",
@@ -188,8 +186,7 @@ BUSINESS_RULES: tuple[str, ...] = (
     "NÃO deduplique nem filtre: mantenha o resultado e avise quando duplicatas o dominarem.",
 )
 
-# Campos que a ferramenta `buscar_valores` pode consultar: (tabela, coluna, coluna extra exibida).
-# Allowlist fechada: o LLM escolhe um nome lógico e nunca injeta identificadores na SQL.
+# campo -> (tabela, coluna, coluna extra); o LLM só escolhe a chave, nunca escreve identificadores
 SEARCHABLE_FIELDS: dict[str, tuple[str, str, str | None]] = {
     "filme": ("dim_movies", "titulo", "ano_lancamento"),
     "pessoa": ("dim_people", "nome_pessoa", "tipo_pessoa"),

@@ -1,0 +1,261 @@
+[
+  {
+    "case_id": "BIL-01",
+    "category": "bilheteria_financas",
+    "model": "openai/gpt-oss-120b",
+    "reasoning": "none",
+    "passed": true,
+    "detail": "ordem confere",
+    "answer": "Os 10 filmes com maior receita em reais são: \n1. Avatar: The Way Of Water (2022) – R$ 12.390.136.500,54;\n2. Avengers: Endgame (2019) – R$ 11.094.720.000,00;\n3. Spider‑Man: No Way Home (2021) – R$ 10.977.782.882,74;\n4. Avengers: Infinity War (2018) – R$ 7.190.430.847,63;\n5. Top Gun: Maverick (2022) – R$ 7.160.804.869,01;\n6. Barbie (2023) – R$ 6.856.159.007,38;\n7. The Super Mario Bros. Movie (2023) – R$ 6.838.413.799,10;\n8. The Lion King (2019) – R$ 6.227.552.146,58;\n9. Frozen II (2019) – R$ 6.094.028.191,32;\n10. Jurassic World: Fallen Kingdom (2018) – R$ 4.934.822.930,85. \nEsses valores consideram apenas os filmes que têm a receita em reais registrada na base.",
+    "assumptions": [
+      "Filtrei apenas filmes com receita_brl não nula.",
+      "Ordenei pela receita em reais em ordem decrescente e limitei a 10 registros."
+    ],
+    "sql": "SELECT dm.titulo AS titulo, dm.ano_lancamento AS ano, fmp.receita_brl AS receita\nFROM dim_movies dm\nJOIN fact_movies_performance fmp USING (sk_movie_id)\nWHERE fmp.receita_brl IS NOT NULL\nORDER BY fmp.receita_brl DESC\nLIMIT 10",
+    "requests": 3,
+    "input_tokens": 10067,
+    "output_tokens": 1178,
+    "latency_ms": 24574.4,
+    "error": null
+  },
+  {
+    "case_id": "BIL-02",
+    "category": "bilheteria_financas",
+    "model": "openai/gpt-oss-120b",
+    "reasoning": "none",
+    "passed": true,
+    "detail": "mapeamento confere",
+    "answer": "O lucro médio dos filmes com receita informada varia bastante por gênero. O gênero com maior lucro médio é Science Fiction, com cerca de R$ 520.783.718,33, seguido por Adventure (R$ 514.678.791,39) e Action (R$ 343.223.021,87). Entre os menores estão Mystery (R$ 119.462.433,49) e Comedy (R$ 143.589.472,55).",
+    "assumptions": [
+      "Considerei apenas filmes onde receita_brl não é NULL",
+      "Calculei a média de lucro_brl por gênero"
+    ],
+    "sql": "SELECT g.nome_genero AS genero, ROUND(AVG(f.lucro_brl), 2) AS lucro_medio_brl\nFROM dim_movies m\nJOIN fact_movies_performance f USING (sk_movie_id)\nJOIN bridge_movie_genre bg USING (sk_movie_id)\nJOIN dim_genres g USING (sk_genre_id)\nWHERE f.receita_brl IS NOT NULL\nGROUP BY g.nome_genero\nORDER BY lucro_medio_brl DESC",
+    "requests": 6,
+    "input_tokens": 21505,
+    "output_tokens": 1396,
+    "latency_ms": 110078.1,
+    "error": null
+  },
+  {
+    "case_id": "BIL-03",
+    "category": "bilheteria_financas",
+    "model": "openai/gpt-oss-120b",
+    "reasoning": "none",
+    "passed": true,
+    "detail": "valores conferem",
+    "answer": "Os filmes com a maior margem de lucro (lucro ÷ receita) são:\n1. **Dad, I'm Sorry (2021)** – margem 100.0 %, lucro R$ 95 303 050.39, receita R$ 95 303 762.5.\n2. **Etlb (2017)** – margem 100.0 %, lucro R$ 3 225 638.71, receita R$ 3 225 800.0.\n3. **Jailbait (2017)** – margem 99.99 %, lucro R$ 23 777 152.36, receita R$ 23 778 840.8.\n4. **Trivikrama (2022)** – margem 99.96 %, lucro R$ 52 307.07, receita R$ 52 328.0.\n5. **The Good Neighbor (2022)** – margem 99.89 %, lucro R$ 486 410.88, receita R$ 486 949.61.\n\n⚠️ Alguns desses títulos apresentam orçamentos muito baixos (por exemplo, valores de poucos reais), o que pode indicar erros de registro e inflar a margem de lucro.",
+    "assumptions": [
+      "Considerei apenas filmes com receita_brl e orçamento_brl informados e maiores que zero.",
+      "A margem foi calculada como (lucro_brl / receita_brl) × 100 e ordenada em ordem decrescente."
+    ],
+    "sql": "SELECT dm.titulo || ' (' || dm.ano_lancamento || ')' AS filme,\n       ROUND(fmp.lucro_brl / fmp.receita_brl * 100, 2) AS margem_percentual,\n       ROUND(fmp.lucro_brl, 2) AS lucro_brl,\n       ROUND(fmp.receita_brl, 2) AS receita_brl,\n       ROUND(fmp.orcamento_brl, 2) AS orcamento_brl\nFROM dim_movies dm\nJOIN fact_movies_performance fmp USING (sk_movie_id)\nWHERE fmp.receita_brl IS NOT NULL\n  AND fmp.receita_brl > 0\n  AND fmp.orcamento_brl IS NOT NULL\n  AND fmp.orcamento_brl > 0\nORDER BY margem_percentual DESC\nLIMIT 10",
+    "requests": 5,
+    "input_tokens": 19029,
+    "output_tokens": 2592,
+    "latency_ms": 94065.4,
+    "error": null
+  },
+  {
+    "case_id": "POP-01",
+    "category": "popularidade_engajamento",
+    "model": "openai/gpt-oss-120b",
+    "reasoning": "none",
+    "passed": true,
+    "detail": "ordem confere",
+    "answer": "Os cinco filmes com maior índice de popularidade são: Blue Beetle (2023) com popularidade 2.994, Gran Turismo (2023) com 2.681, La Fellinette (2020) com 2.020, The Fear Footage 2: Curse Of The Tape (2020) com 2.019 e WWE Survivor Series 2018 (2018) com 2.018. Atenção: os últimos três apresentam valores de popularidade que correspondem ao ano de lançamento, o que indica um erro de registro na fonte.",
+    "assumptions": [
+      "Consideramos todos os filmes do catálogo, independentemente do status.",
+      "Ordenamos apenas pelo campo popularidade, sem filtros adicionais."
+    ],
+    "sql": "SELECT dm.titulo AS titulo, dm.ano_lancamento AS ano, fmp.popularidade AS popularidade\nFROM dim_movies dm\nJOIN fact_movies_performance fmp USING (sk_movie_id)\nORDER BY fmp.popularidade DESC\nLIMIT 5",
+    "requests": 3,
+    "input_tokens": 10030,
+    "output_tokens": 655,
+    "latency_ms": 3008.0,
+    "error": null
+  },
+  {
+    "case_id": "POP-02",
+    "category": "popularidade_engajamento",
+    "model": "openai/gpt-oss-120b",
+    "reasoning": "none",
+    "passed": true,
+    "detail": "valores conferem",
+    "answer": "Os 10 filmes com maior diferença entre a nota do TMDB e a do IMDb são, por exemplo, \"Me Against You: Mr. S's Vendetta (2020)\" com TMDB 8,13 e IMDb 1,7 (diferença 6,43), \"5gang: A Different Kind Of Christmas (2019)\" com TMDB 8,20 e IMDb 2,0 (diferença 6,20) e \"Harry And Meghan: Escaping The Palace (2021)\" com TMDB 6,76 e IMDb 2,6 (diferença 4,16). As demais listadas apresentam divergências entre 3,6 e 4,0 pontos.",
+    "assumptions": [
+      "Considerei apenas filmes que têm nota tanto no TMDB quanto no IMDb",
+      "Exigi pelo menos 100 votos em cada fonte (qtd_imdb >= 100 e qtd_tmdb >= 100) para garantir relevância das notas"
+    ],
+    "sql": "SELECT dm.titulo || ' (' || dm.ano_lancamento || ')' AS filme,\n       ROUND(fmp.nota_tmdb,2) AS nota_tmdb,\n       ROUND(fmp.nota_imdb,2) AS nota_imdb,\n       ROUND(ABS(fmp.nota_tmdb - fmp.nota_imdb),2) AS divergencia\nFROM dim_movies dm\nJOIN fact_movies_performance fmp USING (sk_movie_id)\nWHERE fmp.nota_tmdb IS NOT NULL\n  AND fmp.nota_imdb IS NOT NULL\n  AND fmp.qtd_imdb >= 100\n  AND fmp.qtd_tmdb >= 100\nORDER BY divergencia DESC\nLIMIT 10",
+    "requests": 4,
+    "input_tokens": 14121,
+    "output_tokens": 1294,
+    "latency_ms": 26162.6,
+    "error": null
+  },
+  {
+    "case_id": "POP-03",
+    "category": "popularidade_engajamento",
+    "model": "openai/gpt-oss-120b",
+    "reasoning": "none",
+    "passed": true,
+    "detail": "mapeamento confere",
+    "answer": "A nota média no IMDb dos filmes lançados entre 2016 e 2025 varia pouco, ficando entre 6,15 e 6,58. O pico foi em 2025, com média de 6,58, enquanto 2024 registrou a menor média, 6,15. Nos demais anos a média ficou estável em torno de 6,2 a 6,3.",
+    "assumptions": [
+      "Considerei apenas filmes que têm nota IMDb registrada (nota_imdb IS NOT NULL).",
+      "Agrupei por ano de lançamento (ano_lancamento) e calculei a média arredondada em duas casas decimais."
+    ],
+    "sql": "SELECT dm.ano_lancamento AS ano,\n       ROUND(AVG(fmp.nota_imdb), 2) AS media_nota_imdb\nFROM dim_movies dm\nJOIN fact_movies_performance fmp USING (sk_movie_id)\nWHERE fmp.nota_imdb IS NOT NULL\nGROUP BY dm.ano_lancamento\nORDER BY dm.ano_lancamento",
+    "requests": 3,
+    "input_tokens": 10067,
+    "output_tokens": 608,
+    "latency_ms": 20268.5,
+    "error": null
+  },
+  {
+    "case_id": "ELE-01",
+    "category": "elenco_equipe",
+    "model": "openai/gpt-oss-120b",
+    "reasoning": "none",
+    "passed": true,
+    "detail": "ordem confere",
+    "answer": "O ator com mais participações em filmes lançados nos últimos 5 anos foi Eric Roberts, com 65 filmes exibidos nesse período.",
+    "assumptions": [
+      "Considerei apenas filmes cujo status seja 'Lançado' e cuja data de lançamento esteja entre a data atual (2026-10-01) e 5 anos atrás.",
+      "Contagem de participações por ator foi feita usando COUNT(DISTINCT sk_movie_id)."
+    ],
+    "sql": "WITH filmes_recente AS (\n    SELECT dm.sk_movie_id, dm.titulo, dm.ano_lancamento\n    FROM dim_movies dm\n    WHERE dm.status_filme = 'Lançado'\n      AND dm.data_lancamento BETWEEN date('now', '-5 years') AND date('now')\n)\nSELECT dp.nome_pessoa AS ator,\n       COUNT(DISTINCT f.sk_movie_id) AS participacoes\nFROM filmes_recente f\nJOIN bridge_movie_person bmp ON bmp.sk_movie_id = f.sk_movie_id\nJOIN dim_people dp ON dp.sk_person_id = bmp.sk_person_id\nWHERE dp.tipo_pessoa = 'Ator'\nGROUP BY dp.nome_pessoa\nORDER BY participacoes DESC, dp.nome_pessoa ASC\nLIMIT 1",
+    "requests": 3,
+    "input_tokens": 9935,
+    "output_tokens": 754,
+    "latency_ms": 14845.7,
+    "error": null
+  },
+  {
+    "case_id": "ELE-02",
+    "category": "elenco_equipe",
+    "model": "openai/gpt-oss-120b",
+    "reasoning": "none",
+    "passed": true,
+    "detail": "valores conferem",
+    "answer": "Os diretores com as maiores notas médias (IMDb) entre aqueles que dirigiram ao menos 5 filmes são: Scott Wozniak (média 9,34 em 5 filmes), Yūichirō Hayashi (9,19 em 8 filmes) e Jun Shishido (9,19 em 8 filmes). Eles lideram a lista, seguidos por Trevor L. Allen (9,15 em 8 filmes) e Alonso O. Lara (9,09 em 17 filmes).",
+    "assumptions": [
+      "Considerei apenas diretores com 5 ou mais filmes dirigidos (contagem distinta de filmes).",
+      "A nota média usada foi a nota IMDb (nota_imdb) presente na tabela fact_movies_performance.",
+      "Incluí todos os filmes do catálogo, independentemente do status de lançamento."
+    ],
+    "sql": "SELECT p.nome_pessoa AS diretor,\n       ROUND(AVG(f.nota_imdb),2) AS media_nota_imdb,\n       COUNT(DISTINCT d.sk_movie_id) AS qtd_filmes\nFROM dim_people p\nJOIN bridge_movie_person bmp ON p.sk_person_id = bmp.sk_person_id\nJOIN dim_movies d ON bmp.sk_movie_id = d.sk_movie_id\nJOIN fact_movies_performance f ON d.sk_movie_id = f.sk_movie_id\nWHERE p.tipo_pessoa = 'Diretor'\nGROUP BY p.sk_person_id, p.nome_pessoa\nHAVING COUNT(DISTINCT d.sk_movie_id) >= 5\nORDER BY media_nota_imdb DESC\nLIMIT 10",
+    "requests": 3,
+    "input_tokens": 10399,
+    "output_tokens": 1058,
+    "latency_ms": 42074.5,
+    "error": null
+  },
+  {
+    "case_id": "ELE-03",
+    "category": "elenco_equipe",
+    "model": "openai/gpt-oss-120b",
+    "reasoning": "none",
+    "passed": true,
+    "detail": "ordem confere",
+    "answer": "A dupla ator‑diretor que mais trabalhou junta na base é Joe Anoa'i (ator) e Kevin Dunn (diretor), com 37 filmes em comum.",
+    "assumptions": [],
+    "sql": "WITH atores AS (\n  SELECT bm.sk_movie_id, p.nome_pessoa AS ator\n  FROM bridge_movie_person bm\n  JOIN dim_people p ON bm.sk_person_id = p.sk_person_id\n  WHERE p.tipo_pessoa = 'Ator'\n), diretores AS (\n  SELECT bm.sk_movie_id, p.nome_pessoa AS diretor\n  FROM bridge_movie_person bm\n  JOIN dim_people p ON bm.sk_person_id = p.sk_person_id\n  WHERE p.tipo_pessoa = 'Diretor'\n)\nSELECT a.ator AS ator, d.diretor AS diretor, COUNT(DISTINCT a.sk_movie_id) AS qtd_filmes\nFROM atores a\nJOIN diretores d ON a.sk_movie_id = d.sk_movie_id\nGROUP BY a.ator, d.diretor\nORDER BY qtd_filmes DESC\nLIMIT 1",
+    "requests": 4,
+    "input_tokens": 13577,
+    "output_tokens": 738,
+    "latency_ms": 11157.5,
+    "error": null
+  },
+  {
+    "case_id": "GEN-01",
+    "category": "generos_produtoras",
+    "model": "openai/gpt-oss-120b",
+    "reasoning": "none",
+    "passed": true,
+    "detail": "mapeamento confere",
+    "answer": "A contagem de filmes por gênero mostra que o Drama é o mais representado, com 28.086 títulos, seguido por Documentário (18.082), Comédia (16.048), Terror (8.674) e Thriller (8.540). Os demais gêneros variam de 6.209 (Romance) a 3.336 (Tv Movie). No total, a base contém 19 gêneros diferentes.",
+    "assumptions": [],
+    "sql": "SELECT g.nome_genero AS genero, COUNT(DISTINCT b.sk_movie_id) AS quantidade_filmes\nFROM bridge_movie_genre b\nJOIN dim_genres g ON b.sk_genre_id = g.sk_genre_id\nGROUP BY g.nome_genero\nORDER BY quantidade_filmes DESC",
+    "requests": 3,
+    "input_tokens": 9867,
+    "output_tokens": 446,
+    "latency_ms": 3551.0,
+    "error": null
+  },
+  {
+    "case_id": "GEN-02",
+    "category": "generos_produtoras",
+    "model": "openai/gpt-oss-120b",
+    "reasoning": "none",
+    "passed": true,
+    "detail": "ordem confere",
+    "answer": "A produtora que acumulou o maior lucro total foi a Marvel Studios, com aproximadamente R$ 66,5 bilhões de lucro acumulado nos filmes que têm receita informada.",
+    "assumptions": [
+      "Considerei apenas filmes com receita_brl informada, conforme a regra de confiabilidade para lucro.",
+      "Somamos o lucro_brl de todos os filmes associados a cada produtora."
+    ],
+    "sql": "SELECT c.nome_produtora AS produtora,\n       ROUND(SUM(f.lucro_brl), 2) AS lucro_total_brl\nFROM dim_companies c\nJOIN bridge_movie_company bc ON c.sk_company_id = bc.sk_company_id\nJOIN fact_movies_performance f ON bc.sk_movie_id = f.sk_movie_id\nWHERE f.receita_brl IS NOT NULL\nGROUP BY c.sk_company_id, c.nome_produtora\nORDER BY lucro_total_brl DESC\nLIMIT 1",
+    "requests": 3,
+    "input_tokens": 9837,
+    "output_tokens": 682,
+    "latency_ms": 3132.9,
+    "error": null
+  },
+  {
+    "case_id": "GEN-03",
+    "category": "generos_produtoras",
+    "model": "openai/gpt-oss-120b",
+    "reasoning": "none",
+    "passed": true,
+    "detail": "ordem confere",
+    "answer": "O gênero com a maior margem de lucro média é **War**, com uma margem média de aproximadamente **‑5,35** (ou seja, em média os filmes desse gênero tiveram prejuízo). Como a margem é calculada dividindo o lucro pela receita, valores muito baixos de receita podem gerar margens extremamente negativas, o que distorce a média.",
+    "assumptions": [
+      "Considerei apenas filmes com receita_brl e orçamento_brl informados e maiores que zero.",
+      "A margem média foi calculada como AVG(lucro_brl / receita_brl) por gênero."
+    ],
+    "sql": "SELECT g.nome_genero AS genero,\n       ROUND(AVG(lucro_brl*1.0/receita_brl),4) AS margem_media\nFROM dim_movies m\nJOIN fact_movies_performance f USING (sk_movie_id)\nJOIN bridge_movie_genre bg USING (sk_movie_id)\nJOIN dim_genres g USING (sk_genre_id)\nWHERE f.receita_brl IS NOT NULL\n  AND f.receita_brl > 0\n  AND f.orcamento_brl > 0\nGROUP BY g.nome_genero\nORDER BY margem_media DESC\nLIMIT 1",
+    "requests": 3,
+    "input_tokens": 9907,
+    "output_tokens": 936,
+    "latency_ms": 3417.5,
+    "error": null
+  },
+  {
+    "case_id": "AVA-01",
+    "category": "avaliacoes_usuarios",
+    "model": "openai/gpt-oss-120b",
+    "reasoning": "none",
+    "passed": true,
+    "detail": "valores conferem",
+    "answer": "Os registros com maior número de avaliações de usuários são todos da série *Die Hart* de 2024. O primeiro aparece com 13 avaliações e nota média 4,99; em seguida, o mesmo título aparece com 12 avaliações (nota 6,49) e depois com 11 avaliações (nota 5,56). Há ainda várias entradas com 10 avaliações, variando entre notas médias de 4,04 a 5,97. Observe que a base contém duplicatas desses filmes, o que faz com que eles dominem o ranking dos mais avaliados.",
+    "assumptions": [
+      "Considerei todos os filmes que possuem avaliações de usuários (dim_reviews).",
+      "Ordenei pelos maiores valores de qtd_avaliacoes_usuarios e limitei a 10 registros, conforme a consulta executada.",
+      "Não apliquei filtro mínimo de avaliações, pois a pergunta pede apenas os mais avaliados."
+    ],
+    "sql": "SELECT dm.titulo || ' (' || dm.ano_lancamento || ')' AS filme,\n       dr.qtd_avaliacoes_usuarios AS qtd_avaliacoes,\n       ROUND(dr.nota_media_usuarios,2) AS nota_media\nFROM dim_movies dm\nJOIN dim_reviews dr USING (sk_movie_id)\nORDER BY dr.qtd_avaliacoes_usuarios DESC, dm.titulo\nLIMIT 10",
+    "requests": 4,
+    "input_tokens": 14576,
+    "output_tokens": 1597,
+    "latency_ms": 5577.2,
+    "error": null
+  },
+  {
+    "case_id": "AVA-02",
+    "category": "avaliacoes_usuarios",
+    "model": "openai/gpt-oss-20b",
+    "reasoning": "none",
+    "passed": false,
+    "detail": "ModelHTTPError: status_code: 400, model_name: openai/gpt-oss-20b, body: {'error': {'message': \"Parsing failed. The model generated output that could not be parsed. Please adjust your prompt. See 'failed_generation' for more details.\", 'type': 'invalid_request_error', 'code': 'output_parse_failed', 'failed_generation': 'We need to answer: \"Em quais filmes a nota média dos usuários mais diverge da nota IMDb?\" We already executed query. We need to produce answer with 2-5 sentences, highlight numbers. Also assumptions list. We should mention that we considered only films with at least 3 user reviews and at least 100 IMDb votes. Also note that data may have duplicates. Provide top 10. Provide answer.'}}",
+    "answer": null,
+    "assumptions": [],
+    "sql": null,
+    "requests": 0,
+    "input_tokens": 0,
+    "output_tokens": 0,
+    "latency_ms": 0.0,
+    "error": "Os modelos de IA estão indisponíveis no momento (limite de uso ou instabilidade do provedor). Tente novamente em instantes."
+  }
+]

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from dataclasses import dataclass
 
 from pydantic import BaseModel, Field
@@ -36,8 +37,12 @@ class Verdict:
     detail: str
 
 
+_YEAR_SUFFIX = re.compile(r"\s*\(\d{4}\)$")
+
+
 def _norm_text(value: object) -> str:
-    return str(value).strip().casefold()
+    # o agente às vezes junta o ano ao título: "Blue Beetle (2023)"
+    return _YEAR_SUFFIX.sub("", str(value).strip()).casefold()
 
 
 def _as_float(value: object) -> float | None:
@@ -111,7 +116,6 @@ def compare(case: GoldenCase, reference: Table, actual: Table | None) -> Verdict
             ok = not missing and not extra
             return Verdict(ok, "conjunto confere" if ok else f"faltam {missing}; sobram {extra}")
 
-        # mapping: chave -> métrica, para todas as linhas
         metric_idx = _best_numeric_column(reference.column(check.metric), actual, check.rel_tol)
         if metric_idx is None:
             return Verdict(False, f"métrica '{check.metric}' não encontrada no resultado")
@@ -135,7 +139,7 @@ def compare(case: GoldenCase, reference: Table, actual: Table | None) -> Verdict
         ok = _close(expected_values[0], got_values[0], check.rel_tol)
         return Verdict(ok, f"esperado {expected_values[0]}, obtido {got_values[0]}")
 
-    # values: os top_n primeiros valores da métrica, na ordem (robusto a empates de chave)
+    # values: compara só os valores da métrica, assim empates de título não importam
     got_values = got_values[: len(expected_values)]
     ok = len(got_values) == len(expected_values) and all(
         _close(e, a, check.rel_tol) for e, a in zip(expected_values, got_values, strict=True)
@@ -145,7 +149,6 @@ def compare(case: GoldenCase, reference: Table, actual: Table | None) -> Verdict
     )
 
 
-# ----------------------------------------------------------------- execução de um caso
 class CaseResult(BaseModel):
     case_id: str
     category: str
@@ -222,3 +225,82 @@ async def run_case(
         output_tokens=output_tokens,
         latency_ms=round(latency, 1),
     )
+
+
+CATEGORY_LABELS = {
+    "bilheteria_financas": "Bilheteria e Finanças",
+    "popularidade_engajamento": "Popularidade e Engajamento",
+    "elenco_equipe": "Elenco e Equipe",
+    "generos_produtoras": "Gêneros e Produtoras",
+    "avaliacoes_usuarios": "Avaliações dos Usuários",
+    "robustez": "Robustez (extras)",
+}
+
+
+def _pct(hits: int, total: int) -> str:
+    return f"{hits}/{total} ({100 * hits / total:.0f}%)" if total else "-"
+
+
+def build_report(results: list[CaseResult], cases: list[GoldenCase], generated_at: str) -> str:
+    by_id = {c.id: c for c in cases}
+    done = [r for r in results if r.case_id in by_id]
+    hits = sum(r.passed for r in done)
+    from_assignment = [r for r in done if by_id[r.case_id].source == "enunciado"]
+    answered = [r for r in done if not r.error]
+    assignment_hits = sum(r.passed for r in from_assignment)
+
+    lines = [
+        "# Relatório de avaliação",
+        "",
+        f"Gerado em {generated_at}. Critério: o resultado da SQL do agente precisa bater com o "
+        "da SQL de referência (`eval/golden.yaml`); recusas não podem executar consulta.",
+        "",
+        "## Resumo",
+        "",
+        "| Métrica | Valor |",
+        "|---|---|",
+        f"| Acerto geral | {_pct(hits, len(done))} |",
+        f"| Perguntas do enunciado | {_pct(assignment_hits, len(from_assignment))} |",
+        f"| Casos avaliados / total | {len(done)}/{len(cases)} |",
+    ]
+    if answered:
+        n = len(answered)
+        requests = sum(r.requests for r in answered) / n
+        tokens = sum(r.input_tokens + r.output_tokens for r in answered) / n
+        seconds = sum(r.latency_ms for r in answered) / n / 1000
+        lines += [
+            f"| Chamadas ao LLM por pergunta (média) | {requests:.1f} |",
+            f"| Tokens por pergunta (média) | {tokens:,.0f} |",
+            f"| Latência por pergunta (média) | {seconds:.1f} s |",
+        ]
+    models = sorted({r.model for r in answered})
+    if models:
+        lines.append(f"| Modelo(s) | {', '.join(models)} |")
+
+    lines += ["", "## Por categoria", "", "| Categoria | Acertos |", "|---|---|"]
+    for key, label in CATEGORY_LABELS.items():
+        group = [r for r in done if by_id[r.case_id].category == key]
+        if group:
+            lines.append(f"| {label} | {_pct(sum(r.passed for r in group), len(group))} |")
+
+    lines += ["", "## Casos", ""]
+    for r in done:
+        case = by_id[r.case_id]
+        status = "OK" if r.passed else "FALHA"
+        lines += [f"### {r.case_id} — {status}", "", f"**Pergunta:** {case.question}", ""]
+        if case.history:
+            lines += [f"**Histórico:** {' → '.join(case.history)}", ""]
+        lines.append(f"- Verificação: {r.error or r.detail}")
+        if r.answer:
+            lines.append(f"- Resposta: {r.answer}")
+        if r.assumptions:
+            lines.append(f"- Premissas: {'; '.join(r.assumptions)}")
+        if not r.error:
+            lines.append(
+                f"- Custo: {r.requests} chamada(s), {r.input_tokens + r.output_tokens:,} tokens, "
+                f"{r.latency_ms / 1000:.1f} s"
+            )
+        if r.sql:
+            lines += ["", "```sql", r.sql, "```"]
+        lines.append("")
+    return "\n".join(lines)

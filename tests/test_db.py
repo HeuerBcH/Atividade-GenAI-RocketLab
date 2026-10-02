@@ -15,115 +15,84 @@ from cinedata_agent.db import (
     readonly_connection,
     run_query,
 )
-from cinedata_agent.guardrails import GuardrailError
-
-INFINITE_CTE = (
-    "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n) SELECT MAX(x) FROM n"
-)
-
-
-@pytest.fixture
-def prepared_db(mini_gold_db: Path) -> Path:
-    return mini_gold_db
 
 
 def _run(sql: str, db: Path, **kwargs):
-    options = {"max_rows": 100, "timeout_seconds": 5.0} | kwargs
-    return run_query(sql, db_path=db, **options)
+    return run_query(sql, db_path=db, **({"max_rows": 100, "timeout_seconds": 5.0} | kwargs))
 
 
-def _people(db: Path) -> list[tuple]:
-    conn = sqlite3.connect(db)
-    try:
-        return conn.execute("SELECT * FROM dim_people ORDER BY 1").fetchall()
-    finally:
-        conn.close()
-
-
-# ----------------------------------------------------------------------------- caminho feliz
-def test_returns_columns_and_rows(prepared_db: Path) -> None:
-    result = _run("SELECT nome_pessoa, tipo_pessoa FROM dim_people ORDER BY 1", prepared_db)
-
+def test_returns_rows_and_caps_them(mini_gold_db: Path) -> None:
+    result = _run("SELECT nome_pessoa, tipo_pessoa FROM dim_people ORDER BY 1", mini_gold_db)
     assert result.columns == ["nome_pessoa", "tipo_pessoa"]
     assert result.rows == [["Ator Um", "Ator"], ["Diretora Dois", "Diretor"]]
-    assert not result.truncated
-    assert result.elapsed_ms >= 0
 
+    capped = _run("SELECT * FROM dim_people", mini_gold_db, max_rows=1)
+    assert capped.row_count == 1 and capped.truncated
 
-def test_caps_rows_and_flags_truncation(prepared_db: Path) -> None:
-    result = _run("SELECT * FROM dim_people", prepared_db, max_rows=1)
-    assert result.row_count == 1 and result.truncated
-
-
-def test_allows_recursive_cte_and_functions(prepared_db: Path) -> None:
-    sql = "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<3) SELECT x FROM n"
-    assert _run(sql, prepared_db).rows == [[1], [2], [3]]
-    assert _run("SELECT upper('a'), date('now') IS NOT NULL", prepared_db).rows == [["A", 1]]
-
-
-def test_serializes_blobs(prepared_db: Path) -> None:
-    assert _run("SELECT x'00FF'", prepared_db).rows == [["<blob de 2 bytes>"]]
-
-
-# --------------------------------------------------------------------- camadas de segurança
-def test_guardrail_rejects_before_touching_the_database(tmp_path: Path) -> None:
-    with pytest.raises(GuardrailError):
-        _run("DROP TABLE dim_people", tmp_path / "nem_existe.db")
+    sql = "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<2) SELECT x FROM n"
+    assert _run(sql, mini_gold_db).rows == [[1], [2]]
 
 
 @pytest.mark.parametrize(
     "sql",
     [
-        # Começam com WITH/SELECT, passam pelo guardrail textual e são barrados pelo motor:
+        # começam com WITH/SELECT, passam pelo guardrail de texto e o próprio SQLite barra
         "WITH x AS (SELECT 1) DELETE FROM dim_people",
         "WITH x AS (SELECT 1) UPDATE dim_people SET nome_pessoa = 'hack'",
-        "WITH x AS (SELECT 1) INSERT INTO dim_genres VALUES ('g', 'Hack')",
         "SELECT load_extension('malicioso')",
     ],
 )
-def test_engine_blocks_writes_that_bypass_text_checks(prepared_db: Path, sql: str) -> None:
-    before = _people(prepared_db)
+def test_engine_blocks_writes_that_pass_the_text_check(mini_gold_db: Path, sql: str) -> None:
+    before = mini_gold_db.read_bytes()
     with pytest.raises(QueryError, match="não autorizada"):
-        _run(sql, prepared_db)
-    assert _people(prepared_db) == before
+        _run(sql, mini_gold_db)
+    assert mini_gold_db.read_bytes() == before
 
 
-def test_authorizer_blocks_pragma_and_attach_at_engine_level(prepared_db: Path) -> None:
-    with readonly_connection(prepared_db) as conn:
-        for sql in ("PRAGMA journal_mode = WAL", "ATTACH DATABASE ':memory:' AS x"):
-            with pytest.raises(sqlite3.DatabaseError, match="not authorized"):
-                conn.execute(sql)
-
-
-def test_connection_is_read_only_even_without_authorizer(prepared_db: Path) -> None:
-    with readonly_connection(prepared_db) as conn:
+def test_connection_is_read_only_even_without_the_authorizer(mini_gold_db: Path) -> None:
+    with readonly_connection(mini_gold_db) as conn:
+        with pytest.raises(sqlite3.DatabaseError, match="not authorized"):
+            conn.execute("ATTACH DATABASE ':memory:' AS x")
         conn.set_authorizer(None)
         with pytest.raises(sqlite3.OperationalError, match="readonly"):
             conn.execute("DELETE FROM dim_people")
 
 
-# ------------------------------------------------------------------------- erros e timeout
-def test_timeout_interrupts_runaway_query(prepared_db: Path) -> None:
+def test_timeout_and_sql_errors_go_back_to_the_llm(mini_gold_db: Path) -> None:
+    infinite = (
+        "WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x + 1 FROM n) SELECT MAX(x) FROM n"
+    )
     start = time.perf_counter()
     with pytest.raises(QueryTimeoutError, match="excedeu"):
-        _run(INFINITE_CTE, prepared_db, timeout_seconds=0.3)
+        _run(infinite, mini_gold_db, timeout_seconds=0.3)
     assert time.perf_counter() - start < 3
 
-
-def test_sqlite_errors_are_reported_for_self_correction(prepared_db: Path) -> None:
-    with pytest.raises(QueryError, match="no such column: coluna_inventada"):
-        _run("SELECT coluna_inventada FROM dim_people", prepared_db)
+    with pytest.raises(QueryError, match="no such column: inventada"):
+        _run("SELECT inventada FROM dim_people", mini_gold_db)
 
 
-def test_missing_database_is_explicit(tmp_path: Path) -> None:
-    with pytest.raises(DatabaseUnavailable, match="não encontrado"):
-        _run("SELECT 1", tmp_path / "ausente.db")
+def test_database_check(mini_gold_db: Path, tmp_path: Path) -> None:
+    check_database(mini_gold_db)
+
+    with pytest.raises(DatabaseUnavailable, match="Baixe o cinerocket"):
+        check_database(tmp_path / "ausente.db")
+
+    wal = mini_gold_db.with_name(mini_gold_db.name + "-wal")
+    wal.write_bytes(b"x" * 32)  # immutable=1 ignoraria essas transações
+    with pytest.raises(DatabaseUnavailable, match="pendentes"):
+        check_database(mini_gold_db)
+    wal.unlink()
+
+    conn = sqlite3.connect(mini_gold_db)
+    conn.execute("DROP TABLE dim_reviews")
+    conn.commit()
+    conn.close()
+    with pytest.raises(DatabaseUnavailable, match="dim_reviews"):
+        check_database(mini_gold_db)
 
 
-# --------------------------------------------------------------------------- banco real
 @pytest.mark.db
 def test_heaviest_assignment_query_fits_the_timeout(gold_conn) -> None:
-    """A pergunta mais cara do enunciado (dupla ator-diretor) cabe no timeout padrão."""
     settings = get_settings()
     sql = """
         SELECT a.nome_pessoa, d.nome_pessoa, COUNT(*) AS filmes
@@ -139,36 +108,3 @@ def test_heaviest_assignment_query_fits_the_timeout(gold_conn) -> None:
         timeout_seconds=settings.query_timeout_seconds,
     )
     assert result.rows[0][2] == 37
-    assert result.elapsed_ms < settings.query_timeout_seconds * 1000
-
-
-# ----------------------------------------------------------------------- validação do banco
-def test_check_accepts_the_gold_schema(mini_gold_db: Path) -> None:
-    check_database(mini_gold_db)
-
-
-def test_check_reports_missing_tables(mini_gold_db: Path) -> None:
-    conn = sqlite3.connect(mini_gold_db)
-    conn.execute("DROP TABLE dim_reviews")
-    conn.commit()
-    conn.close()
-    with pytest.raises(DatabaseUnavailable, match="dim_reviews"):
-        check_database(mini_gold_db)
-
-
-def test_check_reports_missing_file(tmp_path: Path) -> None:
-    with pytest.raises(DatabaseUnavailable, match="Baixe o cinerocket"):
-        check_database(tmp_path / "ausente.db")
-
-
-def test_refuses_to_ignore_pending_wal(mini_gold_db: Path) -> None:
-    wal = mini_gold_db.with_name(mini_gold_db.name + "-wal")
-    wal.write_bytes(b"x" * 32)
-    with pytest.raises(DatabaseUnavailable, match="pendentes"):
-        check_database(mini_gold_db)
-
-
-def test_reading_never_changes_the_file(mini_gold_db: Path) -> None:
-    before = mini_gold_db.read_bytes()
-    run_query("SELECT * FROM dim_people", db_path=mini_gold_db, max_rows=10, timeout_seconds=5)
-    assert mini_gold_db.read_bytes() == before

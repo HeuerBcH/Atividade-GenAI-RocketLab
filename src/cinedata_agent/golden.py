@@ -1,17 +1,7 @@
-"""Modelo e carregamento do conjunto de avaliação (`eval/golden.yaml`).
+"""Golden set (eval/golden.yaml): perguntas com SQL de referência.
 
-Cada caso traz uma pergunta em linguagem natural e a SQL de referência escrita à mão. A
-avaliação (Fase 6) compara o *resultado* da SQL do agente com o da referência (execution
-accuracy), e não o texto da SQL: consultas diferentes podem estar igualmente corretas.
-
-Modos de comparação (`check.mode`):
-- ``ordered``: os valores de ``key`` nas ``top_n`` primeiras linhas, na mesma ordem
-  (``metric`` é a coluna de ordenação, usada para detectar empates).
-- ``set``: o mesmo conjunto de valores de ``key``, em qualquer ordem.
-- ``values``: os ``top_n`` primeiros valores de ``metric`` (robusto a empates).
-- ``mapping``: o par ``key`` -> ``metric`` de todas as linhas (ex.: gênero -> contagem).
-- ``scalar``: um único valor de ``metric``.
-- ``refusal``: o agente deve recusar, sem executar SQL.
+Modos de comparação: ordered (chaves na mesma ordem), set (mesmo conjunto), values (top N da
+métrica, tolera empates), mapping (chave -> métrica), scalar (um valor) e refusal (sem SQL).
 """
 
 from __future__ import annotations

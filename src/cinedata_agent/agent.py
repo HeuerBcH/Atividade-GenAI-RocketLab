@@ -12,6 +12,7 @@ from typing import Literal
 
 from groq import AsyncGroq
 from openai import AsyncOpenAI
+from pydantic import ValidationError
 from pydantic_ai import (
     Agent,
     ModelRetry,
@@ -54,17 +55,16 @@ GROQ_MAX_RETRIES = 3
 MAX_CELL_CHARS = 120
 SEARCH_LIMIT = 15
 MAX_TRACE_CHARS = 1500
+PARSE_RETRIES = 1
+_PARSE_ERRORS = ("output_parse_failed", "tool_use_failed")
 
 SearchField = Literal["filme", "pessoa", "produtora", "genero", "status"]
 TOOL_NAMES = frozenset({"executar_sql", "buscar_valores"})
 
-# Podem aparecer na resposta sem estar no resultado (ex.: "Ficção Científica").
 _ALLOWED_TERMS = (*GENRE_TRANSLATIONS, *GENRE_TRANSLATIONS.values(), "CineData Analyst")
 
 
 class AgentError(RuntimeError):
-    """Mensagem amigável para o usuário; `detail` e `steps` ficam para depuração."""
-
     def __init__(self, message: str, *, detail: str = "", steps: list[TraceStep] | None = None):
         super().__init__(message)
         self.detail = detail
@@ -160,10 +160,8 @@ def buscar_valores(ctx: RunContext[AgentDeps], campo: SearchField, termo: str) -
 
 
 def _groq_models(settings: Settings, api_key: str) -> list[Model]:
-    # O gratuito limita 8 mil tokens/minuto e uma pergunta gasta mais que isso. Num 429 o SDK
-    # espera o tempo que o Groq pede e tenta de novo; um 429 não consome tokens nem cota diária.
-    # o SDK do Groq já acrescenta /openai/v1 ao caminho
-    base = settings.base_url.removesuffix("/openai/v1")
+    # o gratuito limita 8 mil tokens/min; num 429 o SDK espera o tempo pedido e tenta de novo
+    base = settings.base_url.removesuffix("/openai/v1")  # o SDK já acrescenta esse caminho
     client = AsyncGroq(api_key=api_key, base_url=base, max_retries=GROQ_MAX_RETRIES)
     provider = GroqProvider(groq_client=client)
     model_settings = GroqModelSettings(
@@ -178,7 +176,7 @@ def _groq_models(settings: Settings, api_key: str) -> list[Model]:
 
 
 def _openrouter_models(settings: Settings, api_key: str) -> list[Model]:
-    # no OpenRouter as requisições que falham contam na cota de 50/dia: sem novas tentativas
+    # no OpenRouter requisição com erro conta na cota de 50/dia
     client = AsyncOpenAI(base_url=settings.base_url, api_key=api_key, max_retries=0)
     provider = OpenRouterProvider(openai_client=client)
     model_settings = OpenRouterModelSettings(
@@ -214,16 +212,24 @@ def _evidence(messages: list[ModelMessage]) -> Evidence:
             continue
         for part in message.parts:
             is_tool_data = isinstance(part, ToolReturnPart) and part.tool_name in TOOL_NAMES
-            if is_tool_data or isinstance(part, UserPromptPart):
-                found_numbers, found_texts = collect_values(part.content)
-                numbers += found_numbers
-                texts += found_texts
+            if not (is_tool_data or isinstance(part, UserPromptPart)):
+                continue
+            found_numbers, found_texts = collect_values(part.content)
+            if isinstance(part, UserPromptPart):
+                # da pergunta só valem anos e tamanhos de lista ("em 2020", "top 10"), para o
+                # modelo não confirmar um valor falso que o próprio usuário afirmou
+                found_numbers = [
+                    n
+                    for n in found_numbers
+                    if n.is_integer() and (0 < n <= 50 or 1900 <= n <= 2100)
+                ]
+            numbers += found_numbers
+            texts += found_texts
     numbers.append(float(date.today().year))
     return Evidence(numbers=numbers, texts=texts)
 
 
 def _validate_answer(ctx: RunContext[AgentDeps], output: AgentOutput | str) -> AgentOutput | str:
-    """Rejeita respostas dadas antes de ver os dados ou que citam algo que não está neles."""
     messages = ctx.messages
     last = max((i for i, m in enumerate(messages) if isinstance(m, ModelResponse)), default=None)
     if last is not None:
@@ -236,8 +242,7 @@ def _validate_answer(ctx: RunContext[AgentDeps], output: AgentOutput | str) -> A
             if isinstance(m, ModelRequest)
             for p in m.parts
         )
-        # Alguns modelos mandam a consulta e a resposta juntas (e inventam o resultado).
-        # Se já viram dados numa rodada anterior, repetir a consulta não é problema.
+        # alguns modelos mandam a consulta e a resposta juntas e inventam o resultado
         if called_tools and not observed_before:
             raise ModelRetry(
                 "Você enviou a resposta final junto com uma chamada de ferramenta, antes de ver "
@@ -267,8 +272,7 @@ def build_agent(model: Model) -> Agent[AgentDeps, AgentOutput | str]:
         model,
         name="cinedata-analyst",
         deps_type=AgentDeps,
-        # aceitar texto deixa o tool_choice em "auto"; com saída só estruturada o Groq exige
-        # uma ferramenta em toda rodada e o gpt-oss falha com tool_use_failed ao responder
+        # com saída só estruturada o Groq exige ferramenta em toda rodada (tool_use_failed)
         output_type=[AgentOutput, str],
         instructions=_instructions,
         tools=[Tool(buscar_valores, max_retries=2), Tool(executar_sql, max_retries=2)],
@@ -294,7 +298,6 @@ def _observation(content: object) -> str:
 
 
 def extract_trace(messages: list[ModelMessage]) -> list[TraceStep]:
-    """Monta os passos do ReAct (pensamento, ação, observação, erro) a partir das mensagens."""
     steps = []
     for message in messages:
         if isinstance(message, ModelResponse):
@@ -312,6 +315,17 @@ def extract_trace(messages: list[ModelMessage]) -> list[TraceStep]:
                     detail = part.content if isinstance(part.content, str) else str(part.content)
                     steps.append(TraceStep(kind="erro", content=_short(detail)))
     return steps
+
+
+def _parse_text_answer(text: str) -> AgentOutput:
+    # às vezes o modelo escreve o JSON do formato estruturado como texto
+    cleaned = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
+    if cleaned.startswith("{"):
+        try:
+            return AgentOutput.model_validate_json(cleaned)
+        except ValidationError:
+            pass
+    return AgentOutput(answer=text.strip())
 
 
 def _friendly(exc: Exception) -> str:
@@ -343,8 +357,29 @@ async def ask(
     message_history: list[ModelMessage] | None = None,
     timeout_seconds: float | None = None,
 ) -> tuple[AskResponse, list[ModelMessage]]:
-    """Responde a pergunta e devolve também as mensagens novas desta rodada."""
     start = time.perf_counter()
+    for attempt in range(PARSE_RETRIES + 1):
+        try:
+            return await _run_once(
+                agent, question, deps, max_requests, message_history, timeout_seconds, start
+            )
+        except AgentError as exc:
+            # o Groq às vezes não consegue interpretar a saída do gpt-oss (400 intermitente)
+            if attempt == PARSE_RETRIES or not any(c in exc.detail for c in _PARSE_ERRORS):
+                raise
+            deps.results.clear()
+    raise AssertionError("inalcançável")
+
+
+async def _run_once(
+    agent: Agent[AgentDeps, AgentOutput | str],
+    question: str,
+    deps: AgentDeps,
+    max_requests: int,
+    message_history: list[ModelMessage] | None,
+    timeout_seconds: float | None,
+    start: float,
+) -> tuple[AskResponse, list[ModelMessage]]:
     with capture_run_messages() as captured:
         try:
             run = agent.run(
@@ -373,10 +408,13 @@ async def ask(
                 steps=extract_trace(captured[len(message_history or []) :]),
             ) from exc
 
-    final = deps.results[-1] if deps.results else None
+    # a tabela é a última consulta com linhas (uma checagem vazia depois não deve substituí-la)
+    final = next((r for r in reversed(deps.results) if r.rows), None) or (
+        deps.results[-1] if deps.results else None
+    )
     output = result.output
     if isinstance(output, str):
-        output = AgentOutput(answer=output.strip())
+        output = _parse_text_answer(output)
     usage = result.usage
     response = AskResponse(
         question=question,

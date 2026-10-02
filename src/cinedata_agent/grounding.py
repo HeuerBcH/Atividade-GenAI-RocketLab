@@ -17,14 +17,13 @@ _NUMBER = re.compile(
 # a ordem importa: "milh" antes de "mil" antes de "mi"
 _SCALES = {"milh": 1e6, "mil": 1e3, "mi": 1e6, "bilh": 1e9, "bi": 1e9, "trilh": 1e12, "tri": 1e12}
 
-# Nome próprio: 2+ palavras capitalizadas, admitindo conectivos e pontuação de títulos.
+# nome próprio = 2+ palavras capitalizadas, aceitando conectivos de título
 _WORD = r"[A-ZÀ-Ý0-9][\w'\u2019À-ÿ.-]*:?"
 _CONNECTOR = r"(?:de|da|do|das|dos|e|of|the|and|a|an|in|on|to|for|vs\.?|[:&-])"
 _PROPER_NAME = re.compile(rf"{_WORD}(?:\s+(?:{_CONNECTOR}\s+)*{_WORD})+")
-# Separadores de enumeração ("Blue Beetle e Gran Turismo" são dois nomes, não um).
+# "Blue Beetle e Gran Turismo" são dois nomes
 _LIST_SEPARATOR = re.compile(r"\s+(?:e|and|&)\s+|,\s*")
 
-# Termos do domínio que não são entidades do banco.
 _ALWAYS_ALLOWED = {
     "imdb",
     "tmdb",
@@ -66,7 +65,7 @@ def _readings(token: str, suffix: str | None) -> list[_Reading]:
     return [_Reading(v, u, d) for v, d in interpretations for u in units]
 
 
-# Marcadores de posição em listas ("1. Blue Beetle", "2) ...", "1º lugar") não são dados.
+# "1. Blue Beetle", "2º lugar": posição em lista não é dado
 _LIST_MARKER = re.compile(r"(?m)(?:^|(?<=[\s:;]))\d{1,2}(?:[.)](?=\s)|[ºª°])")
 
 
@@ -134,7 +133,7 @@ def ungrounded_names(text: str, evidence: Evidence, allowed_terms: Iterable[str]
     allowed = {_normalize(t) for t in (*_ALWAYS_ALLOWED, *allowed_terms)}
 
     def grounded(words: list[str]) -> bool:
-        # Descarta palavras iniciais (ex.: "Segundo Christopher Nolan") enquanto restar um nome.
+        # "Segundo Christopher Nolan": vai tirando palavras do começo
         while _capitalized_words(words) >= 2:
             normalized = _normalize(" ".join(words).strip(" .:-"))
             if normalized in haystack or any(normalized in a or a in normalized for a in allowed):
@@ -143,9 +142,24 @@ def ungrounded_names(text: str, evidence: Evidence, allowed_terms: Iterable[str]
         return False
 
     missing = []
-    for match in _PROPER_NAME.finditer(text.replace("**", "")):
-        for piece in _LIST_SEPARATOR.split(match.group(0)):
-            words = piece.strip(" .:-").split()
-            if _capitalized_words(words) >= 2 and not grounded(words):
-                missing.append(" ".join(words))
+    for sentence in _sentences(text):
+        for match in _PROPER_NAME.finditer(sentence):
+            for piece in _LIST_SEPARATOR.split(match.group(0)):
+                words = piece.strip(" .:-").split()
+                if _capitalized_words(words) >= 2 and not grounded(words):
+                    missing.append(" ".join(words))
     return missing
+
+
+# aspas que só delimitam um valor ('Lançado'); o apóstrofo dentro do nome (Anoa'i) fica
+_QUOTE = re.compile(
+    r"(?<!\w)['\"\N{LEFT SINGLE QUOTATION MARK}\N{LEFT DOUBLE QUOTATION MARK}"
+    r"\N{RIGHT DOUBLE QUOTATION MARK}]|['\"\N{RIGHT SINGLE QUOTATION MARK}"
+    r"\N{RIGHT DOUBLE QUOTATION MARK}](?!\w)"
+)
+_SENTENCE_END = re.compile(r"(?<=[.!?;])\s+|\n+")
+
+
+def _sentences(text: str) -> list[str]:
+    # nomes não se estendem de uma frase para a outra
+    return _SENTENCE_END.split(_QUOTE.sub(" ", text.replace("**", "")))

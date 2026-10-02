@@ -1,0 +1,10 @@
+services:
+  api:
+    build: .
+    env_file: .env
+    environment:
+      DB_PATH: /app/data/cinerocket.db
+    volumes:
+      - ./data:/app/data:ro # o banco entra somente leitura
+    ports:
+      - "${API_PORT:-8000}:8000"
